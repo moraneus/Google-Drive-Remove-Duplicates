@@ -23,8 +23,8 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 def get_service():
     """Authorize and return Google Drive service."""
     creds = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
+    if os.path.exists('token.json'):
+        with open('token.json', 'rb') as token:
             creds = pickle.load(token)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -33,7 +33,7 @@ def get_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
+        with open('token.json', 'wb') as token:
             pickle.dump(creds, token)
     return build('drive', 'v3', credentials=creds)
 
