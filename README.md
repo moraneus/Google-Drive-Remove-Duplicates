@@ -13,6 +13,16 @@ It uses Google Drive API v3 for accessing and modifying files.
 - If it finds files with the same content but different names, it will ask you which file you want to keep.
 - Logs each step of the process to help you track the script's progress and actions.
 
+## ⚠️ Warning
+Moving files to the trash is irreversible through this script. Be careful when using the `--delete` argument. If you accidentally move a file to the trash, you can manually restore it from the trash in Google Drive.
+Notes
+
+It is recommended to always backup important files before running the script.
+
+This script is a tool that helps in managing duplicate files on your Google Drive. While the script has been designed to be as accurate and safe as possible, the ultimate responsibility for handling and deleting files lies with the user. 
+Please use this tool responsibly and at your own risk. 
+The author will not be held responsible for any data loss that may occur as a result of using this script.
+
 ## Installation
 
 1. Clone the repository:
@@ -68,6 +78,3 @@ After you have finished using the application, it is recommended to perform the 
 
 By following these cleanup instructions, you can ensure that the application no longer has access to your Google Account and that any test user permissions are removed.
 
-
-## Warning
-Moving files to the trash is irreversible through this script. Be careful when using the `--delete` argument. If you accidentally move a file to the trash, you can manually restore it from the trash in Google Drive.
