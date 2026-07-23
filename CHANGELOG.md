@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] — 2026-07-23
+
+### Added
+- **In-app first-run setup**: when no OAuth client is configured, the Connect
+  stage shows a step-by-step guide with direct links to the exact Google Cloud
+  Console pages, hover tooltips explaining each step, a prominent
+  keep-this-file-private warning, and an **upload button** that validates the
+  downloaded client JSON and stores it at `~/.gdrive-dedupe/credentials.json`
+  (0600). No README reading required.
+- Upload validation gives specific errors for common mistakes (service-account
+  keys, token files, non-JSON files); the Connect button stays disabled until a
+  valid client is in place.
+
 ## [2.1.0] — 2026-07-23
 
 ### Added

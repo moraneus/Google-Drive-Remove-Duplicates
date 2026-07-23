@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -27,6 +28,43 @@ def find_client_secrets() -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def save_client_secrets(content: str) -> Path:
+    """Validate an uploaded OAuth client JSON and store it in the config dir.
+
+    Raises ValueError with a user-facing message when the content is not a
+    Desktop-app OAuth client file.
+    """
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        raise ValueError(
+            "That file isn't valid JSON. Download the OAuth client JSON from "
+            "Google Cloud Console and upload that file."
+        ) from None
+    if not isinstance(data, dict):
+        raise ValueError("That file doesn't look like an OAuth client JSON.")
+    if data.get("type") == "service_account":
+        raise ValueError(
+            "That's a service-account key, not an OAuth client. In Google Cloud "
+            "Console create an 'OAuth client ID' of type 'Desktop app' instead."
+        )
+    if "refresh_token" in data or "token" in data:
+        raise ValueError(
+            "That looks like a token file, not an OAuth client. Upload the client "
+            "JSON you downloaded from Google Cloud Console."
+        )
+    client = data.get("installed") or data.get("web")
+    if not (isinstance(client, dict) and client.get("client_id")):
+        raise ValueError(
+            "This doesn't look like an OAuth client file. Make sure you created a "
+            "'Desktop app' client and downloaded its JSON."
+        )
+    path = config_dir() / "credentials.json"
+    path.write_text(content)
+    path.chmod(0o600)
+    return path
 
 
 def save_token(creds) -> None:
@@ -72,10 +110,12 @@ def run_oauth_flow(write_access: bool = False) -> Credentials:
 def auth_status() -> dict:
     read = load_credentials(write_access=False)
     write = read is not None and _scopes_ok(read, write_access=True)
+    secrets = find_client_secrets()
     return {
         "connected": read is not None,
         "write_access": write,
-        "has_client_secrets": find_client_secrets() is not None,
+        "has_client_secrets": secrets is not None,
+        "client_secrets_path": str(secrets) if secrets else None,
     }
 
 

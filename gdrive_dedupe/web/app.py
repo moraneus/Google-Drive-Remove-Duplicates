@@ -32,6 +32,10 @@ class TrashBody(BaseModel):
     file_ids: list[str]
 
 
+class CredentialsBody(BaseModel):
+    content: str
+
+
 def _file_dict(f) -> dict:
     return {
         "id": f.id,
@@ -107,6 +111,14 @@ def create_app() -> FastAPI:
 
         threading.Thread(target=work, daemon=True).start()
         return {"started": True}
+
+    @app.post("/api/auth/credentials")
+    def upload_credentials(body: CredentialsBody):
+        try:
+            path = auth.save_client_secrets(body.content)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"saved": True, "path": str(path)}
 
     @app.post("/api/auth/disconnect")
     def disconnect():

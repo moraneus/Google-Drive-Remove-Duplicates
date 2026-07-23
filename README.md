@@ -57,10 +57,24 @@ cd Google-Drive-Remove-Duplicates
 uv sync          # or: pip install .
 ```
 
-### 2. Create Google OAuth credentials (one-time, ~5 minutes)
+### 2. Run
 
-The app talks directly to the Google Drive API as *you*, so it needs an OAuth client
-of your own:
+```bash
+uv run gdrive-dedupe web
+```
+
+Your browser opens at `http://127.0.0.1:8765`. On first run the app walks you through
+the one-time Google setup right in the page — step-by-step links to create your own
+(free) OAuth client, hover tooltips explaining each step, and an upload button that
+stores the downloaded `credentials.json` in the right place (`~/.gdrive-dedupe/`,
+private to this computer):
+
+![Built-in first-run setup](docs/img/setup.png)
+
+Then: Connect, scan, review, clean.
+
+<details>
+<summary>Prefer doing the Google setup manually?</summary>
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a project.
 2. Enable the **Google Drive API** (APIs & Services → Library).
@@ -70,13 +84,7 @@ of your own:
 5. Download the JSON and save it as `credentials.json` in the project directory
    (or in `~/.gdrive-dedupe/`).
 
-### 3. Run
-
-```bash
-uv run gdrive-dedupe web
-```
-
-Your browser opens at `http://127.0.0.1:8765`. Connect, scan, review, clean.
+</details>
 
 ## Web UI
 

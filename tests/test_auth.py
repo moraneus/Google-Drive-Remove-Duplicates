@@ -64,7 +64,40 @@ def test_auth_status_disconnected(home):
         "connected": False,
         "write_access": False,
         "has_client_secrets": False,
+        "client_secrets_path": None,
     }
+
+
+VALID_CLIENT = json.dumps(
+    {"installed": {"client_id": "abc.apps.googleusercontent.com", "client_secret": "xyz"}}
+)
+
+
+def test_save_client_secrets_valid(home):
+    path = auth.save_client_secrets(VALID_CLIENT)
+    assert path == auth.config_dir() / "credentials.json"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert auth.auth_status()["has_client_secrets"] is True
+
+
+def test_save_client_secrets_rejects_garbage(home):
+    with pytest.raises(ValueError, match="valid JSON"):
+        auth.save_client_secrets("not json at all")
+
+
+def test_save_client_secrets_rejects_service_account(home):
+    with pytest.raises(ValueError, match="service-account"):
+        auth.save_client_secrets(json.dumps({"type": "service_account", "client_id": "x"}))
+
+
+def test_save_client_secrets_rejects_token_file(home):
+    with pytest.raises(ValueError, match="token file"):
+        auth.save_client_secrets(json.dumps({"refresh_token": "r", "client_id": "x"}))
+
+
+def test_save_client_secrets_rejects_wrong_shape(home):
+    with pytest.raises(ValueError, match="Desktop app"):
+        auth.save_client_secrets(json.dumps({"foo": "bar"}))
 
 
 def test_run_oauth_flow_without_secrets_raises(home):
