@@ -1,80 +1,152 @@
-# Google Drive Duplicate Finder
+# Drive Dedupe
 
-This script helps you find duplicate files in your Google Drive using the Google Drive API. 
-Duplicates are determined based on the MD5 hash of files, which ensures high accuracy in duplicate detection. 
-By comparing file hashes, we can be confident that the file content is identical, making this approach very reliable and safe.
-It uses Google Drive API v3 for accessing and modifying files.
+[![CI](https://github.com/moraneus/Google-Drive-Remove-Duplicates/actions/workflows/ci.yml/badge.svg)](https://github.com/moraneus/Google-Drive-Remove-Duplicates/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+Find and **safely** remove duplicate files in your Google Drive — from a local web
+interface or the command line. Duplicates are detected by comparing the MD5 checksums
+Google already stores for every binary file, so a match means the file *content* is
+byte-for-byte identical.
+
+Everything runs on your own machine. Your OAuth credentials and token never leave it,
+and nothing is ever permanently deleted — files only go to Drive's trash, with a local
+audit log and one-click undo.
+
+> Looking for the original single-script version? It's preserved at
+> [v1.0.0](https://github.com/moraneus/Google-Drive-Remove-Duplicates/releases/tag/v1.0.0).
 
 ## Features
 
-- Fetches all non-trashed files metadata from your Google Drive.
-- Identifies duplicate files by comparing their hash values (MD5 checksums).
-- Optionally moves duplicate files to trash.
-- If it finds files with the same content but different names, it will ask you which file you want to keep.
-- Logs each step of the process to help you track the script's progress and actions.
+- **Exact detection** — files are grouped by MD5 checksum; only true content duplicates
+  are reported, with folder paths, sizes, and modification dates to help you decide.
+- **Web UI and CLI** — a local browser interface (`gdrive-dedupe web`) and a scriptable
+  CLI (`gdrive-dedupe scan` / `clean` / `undo`) share the same engine.
+- **Read-only by default** — scanning uses the `drive.metadata.readonly` scope; the app
+  *cannot* modify your Drive until you explicitly grant write access for cleanup.
+- **Dry-run by default** — `clean` only prints its plan unless you pass `--apply`, and
+  the web UI always shows a confirmation dialog listing exactly what will be trashed.
+- **Trash only, with undo** — nothing is permanently deleted. Every batch is recorded
+  in a local audit log, and the last batch can be restored with one command or click.
+- **Only your files** — files merely *shared with you* are never touched.
+- **Private** — no telemetry, no third-party servers; the web server binds to
+  `127.0.0.1` only.
 
-## ⚠️ Warning
-Moving files to the trash is irreversible through this script. Be careful when using the `--delete` argument. If you accidentally move a file to the trash, you can manually restore it from the trash in Google Drive.
-Notes
+## Safety model
 
-It is recommended to always backup important files before running the script.
+1. Two-tier OAuth: read-only scope for scanning, separate explicit consent for cleanup.
+2. Token stored as plain JSON at `~/.gdrive-dedupe/token.json` with `0600` permissions.
+3. Dry-run/confirmation before any change.
+4. Trash-only mutations — recoverable from Drive's trash (Google keeps trashed files 30 days).
+5. Audit log of every batch at `~/.gdrive-dedupe/audit.jsonl`, written *before* trashing.
+6. Undo restores the most recent batch.
 
-This script is a tool that helps in managing duplicate files on your Google Drive. While the script has been designed to be as accurate and safe as possible, the ultimate responsibility for handling and deleting files lies with the user. 
-Please use this tool responsibly and at your own risk. 
-The author will not be held responsible for any data loss that may occur as a result of using this script.
+Details in [SECURITY.md](SECURITY.md).
 
-## Installation
+## Quick start
 
-1. Clone the repository:
+### 1. Install
 
 ```bash
-git clone https://github.com/moraneus/G-Drive-Remove-Duplicates.git
-cd G-Drive-Remove-Duplicates
+git clone https://github.com/moraneus/Google-Drive-Remove-Duplicates.git
+cd Google-Drive-Remove-Duplicates
+uv sync          # or: pip install .
 ```
-2. Install the required Python packages:
+
+### 2. Create Google OAuth credentials (one-time, ~5 minutes)
+
+The app talks directly to the Google Drive API as *you*, so it needs an OAuth client
+of your own:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a project.
+2. Enable the **Google Drive API** (APIs & Services → Library).
+3. Configure the **OAuth consent screen**: External, fill in the app name and your
+   email, and add your Google account as a **test user**.
+4. Create credentials → **OAuth client ID** → application type **Desktop app**.
+5. Download the JSON and save it as `credentials.json` in the project directory
+   (or in `~/.gdrive-dedupe/`).
+
+### 3. Run
+
 ```bash
-pip install -r requirements.txt
+uv run gdrive-dedupe web
 ```
-3. Setup Google Cloud Project:
-	1. Create Google Cloud project.
-	2. Enable the Google Drive API.
-	3. Download the client configuration as described [here](https://developers.google.com/drive/api/v3/quickstart/python).
-	4. Save the configuration file as `credentials.json` in the same directory as the script.
-	5. Add your Google Account as a test user.
 
-## Usage
-Run the script without any arguments to only report duplicates:
+Your browser opens at `http://127.0.0.1:8765`. Connect, scan, review, clean.
+
+## Web UI
+
+The interface walks through four stages:
+
+1. **Connect** — authorize read-only access via Google's consent screen.
+2. **Scan** — fetches file metadata (no file contents are downloaded) with live progress.
+3. **Review** — duplicate groups sorted by wasted space. A keep-strategy (newest/oldest)
+   pre-selects which copies to remove; every checkbox is yours to override, and each
+   file links to Drive so you can look before you leap.
+4. **Clean** — confirmation dialog → files move to Drive's trash → **Undo** if you
+   change your mind.
+
+## CLI usage
+
 ```bash
-python duplicate_scanner.py
+uv run gdrive-dedupe scan                  # report duplicates (read-only)
+uv run gdrive-dedupe scan --json out.json  # also write a JSON report
+uv run gdrive-dedupe clean                 # DRY RUN: show what would be trashed
+uv run gdrive-dedupe clean --apply         # trash duplicates, keeping the newest copy
+uv run gdrive-dedupe clean --strategy oldest --apply   # keep the oldest copy instead
+uv run gdrive-dedupe undo                  # restore the last trashed batch
+uv run gdrive-dedupe web --port 9000       # web UI on another port
 ```
 
-Run the script with the `--delete` argument to move duplicates to the trash:
+## How duplicates are detected
+
+- Google Drive stores an MD5 checksum for every binary file; two files with the same
+  checksum have identical content regardless of name or folder.
+- Google-native files (Docs, Sheets, Slides) have no checksum and are skipped — the
+  scan reports how many were skipped.
+- Only files **owned by you** in My Drive are considered; shared files and shared
+  drives are out of scope.
+
+## FAQ
+
+**Why does cleanup ask me to consent again?**
+Scanning uses a read-only scope. Trashing requires the full Drive scope, so the app
+re-runs the consent flow the first time you clean — least privilege by design.
+
+**Where do my token and audit log live?**
+In `~/.gdrive-dedupe/` (`token.json`, `audit.jsonl`). Delete the directory to reset.
+
+**What if I trash the wrong file?**
+Use *Undo* (web) or `gdrive-dedupe undo` (CLI) to restore the last batch, or restore
+manually from [drive.google.com/drive/trash](https://drive.google.com/drive/trash).
+Google keeps trashed files for 30 days.
+
+**Does anything leave my machine?**
+Only API calls to Google. No other network traffic, no telemetry.
+
+## Revoking access / cleanup
+
+When you're done with the tool:
+
+1. Revoke the app's access at [Google Account Permissions](https://myaccount.google.com/permissions).
+2. Delete the OAuth client at [Google Cloud Credentials](https://console.cloud.google.com/apis/credentials)
+   (or delete the whole project).
+3. Delete `~/.gdrive-dedupe/` and your local `credentials.json`.
+
+## Development
+
 ```bash
-python duplicate_scanner.py --delete
+uv sync                    # install with dev dependencies
+uv run pytest              # run the test suite (no Google account needed)
+uv run ruff check .        # lint
+uv run ruff format .       # format
 ```
 
-### Delete Behavior
-When the --delete argument is used, the behavior is as follows:
+Architecture overview: [docs/architecture.md](docs/architecture.md).
+Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-- Duplicates with the same file name: One of the duplicate files is automatically moved to the trash without user intervention.
+## License & disclaimer
 
-- Duplicates with different file names: The script will prompt the user to choose which file to move to the trash.
-
-In both cases, the operation is reported in the console and the log file.
-
-## Logs
-The script writes detailed logs to drive_scanner.log. Each run of the script appends to the log file.
-
-## Cleanup Instructions
-
-After you have finished using the application, it is recommended to perform the following cleanup steps:
-
-1. Delete OAuth 2.0 Client ID: Go to [Google Project Credentials](https://console.cloud.google.com/apis/credentials) page. Locate the OAuth 2.0 Client ID credential and delete it.
-2. Revoke Access: Go to your [Google Account Permissions](https://myaccount.google.com/permissions) page. Locate the application name you used for this project and click on it. Then, click on the "Remove Access" or "Revoke Access" button to revoke the permissions granted to the application.
-3. Remove Test User (if applicable): If you added your Google Account as a test user to bypass the verification process.
-4. Delete your project.
-5. Delete the generated `token.json` file created locally on your project directory.
-6. Delete the `credentials.json` file from your project directory.
-
-By following these cleanup instructions, you can ensure that the application no longer has access to your Google Account and that any test user permissions are removed.
-
+MIT. This tool moves files to Drive's trash on your explicit instruction; review the
+plan before applying it. The author is not responsible for data loss — always keep
+backups of important files.
