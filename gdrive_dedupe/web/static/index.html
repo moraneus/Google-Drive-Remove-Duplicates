@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drive Dedupe</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Drive Dedupe</h1>
+  <p class="tagline">Find and safely remove duplicate files in your Google Drive</p>
+</header>
+<main>
+  <!-- Stage: Connect -->
+  <section id="stage-connect" class="card">
+    <h2>1 · Connect</h2>
+    <p id="auth-info">Checking connection…</p>
+    <p class="hint" id="secrets-hint" hidden>
+      Place your OAuth <code>credentials.json</code> next to the app (see README) and reload.
+    </p>
+    <div class="row">
+      <button id="btn-connect">Connect Google Drive (read-only)</button>
+      <button id="btn-disconnect" class="ghost" hidden>Disconnect</button>
+    </div>
+    <p class="hint">Scanning uses a read-only scope — the app cannot modify anything.</p>
+  </section>
+
+  <!-- Stage: Scan -->
+  <section id="stage-scan" class="card" hidden>
+    <h2>2 · Scan</h2>
+    <div class="row">
+      <button id="btn-scan">Scan My Drive</button>
+      <span id="scan-progress" class="progress"></span>
+    </div>
+  </section>
+
+  <!-- Stage: Review -->
+  <section id="stage-review" class="card" hidden>
+    <h2>3 · Review duplicates</h2>
+    <div id="summary" class="stats"></div>
+    <div class="row">
+      <label for="strategy">Pre-select copies to remove, keeping the</label>
+      <select id="strategy">
+        <option value="newest" selected>newest file</option>
+        <option value="oldest">oldest file</option>
+      </select>
+    </div>
+    <div id="groups"></div>
+  </section>
+
+  <!-- Stage: Clean -->
+  <section id="stage-clean" class="card" hidden>
+    <h2>4 · Clean</h2>
+    <p id="clean-summary"></p>
+    <p class="hint">Files are moved to Drive's trash (recoverable for 30 days). An audit log
+      is kept locally, and you can undo the last batch here.</p>
+    <div class="row">
+      <button id="btn-clean" class="danger">Move selected to trash…</button>
+      <button id="btn-undo" class="ghost" hidden>Undo last batch</button>
+    </div>
+    <p id="clean-result"></p>
+  </section>
+</main>
+
+<dialog id="confirm-dialog">
+  <h3>Confirm: move these files to trash?</h3>
+  <ul id="confirm-list"></ul>
+  <p id="confirm-count"></p>
+  <div class="row">
+    <button id="confirm-yes" class="danger">Move to trash</button>
+    <button id="confirm-no" class="ghost">Cancel</button>
+  </div>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
