@@ -1,26 +1,35 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from gdrive_dedupe.core.drive import FOLDER_MIME
 from gdrive_dedupe.core.models import DriveFile, DuplicateGroup, ScanResult
 from gdrive_dedupe.web import app as webapp
 
 
-def f(id, md5="m", modified="2024-01-01T00:00:00Z"):
-    return DriveFile(id=id, name=f"{id}.txt", size=10, md5=md5, modified_time=modified)
+def f(id, md5="m", modified="2024-01-01T00:00:00Z", parent=""):
+    return DriveFile(
+        id=id, name=f"{id}.txt", size=10, md5=md5, modified_time=modified, parent=parent
+    )
 
+
+def folder(id, parent=""):
+    return DriveFile(
+        id=id, name=id, size=0, md5=None, modified_time="", mime_type=FOLDER_MIME, parent=parent
+    )
+
+
+FILES = [
+    f("keep", modified="2024-06-01T00:00:00Z", parent="full"),
+    f("dupe", modified="2020-01-01T00:00:00Z"),
+    f("lonely", md5="z", modified="2019-03-01T00:00:00Z"),
+]
 
 RESULT = ScanResult(
     total_files=4,
     skipped_no_md5=0,
-    groups=[
-        DuplicateGroup(
-            md5="m",
-            files=[
-                f("keep", modified="2024-06-01T00:00:00Z"),
-                f("dupe", modified="2020-01-01T00:00:00Z"),
-            ],
-        )
-    ],
+    groups=[DuplicateGroup(md5="m", files=[FILES[0], FILES[1]])],
+    files=FILES,
+    folders=[folder("full"), folder("emptyA"), folder("emptyB", parent="emptyA")],
 )
 
 
@@ -90,6 +99,46 @@ def test_undo_when_empty_is_404(client, monkeypatch):
 
     monkeypatch.setattr(webapp.actions, "undo_last", boom)
     assert client.post("/api/undo").status_code == 404
+
+
+def test_empty_folders_returns_top_level_only(client):
+    body = client.get("/api/empty-folders").json()
+    assert body["count"] == 1
+    assert body["folders"][0]["id"] == "emptyA"
+
+
+def test_old_files_filters_and_totals(client):
+    body = client.get("/api/old-files?before=2021-01-01").json()
+    assert [x["id"] for x in body["files"]] == ["lonely", "dupe"]
+    assert body["total_bytes"] == 20
+
+
+def test_old_files_rejects_bad_date(client):
+    assert client.get("/api/old-files?before=nonsense").status_code == 400
+
+
+def test_trash_rejects_unknown_ids(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    resp = client.post("/api/trash", json={"file_ids": ["emptyB"]})
+    assert resp.status_code == 400
+
+
+def test_trash_accepts_empty_folder_and_old_file(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    seen = []
+    monkeypatch.setattr(
+        webapp.actions,
+        "trash_files",
+        lambda client_, items, progress_cb=None: seen.extend(items) or "batch7",
+    )
+    body = client.post("/api/trash", json={"file_ids": ["emptyA", "lonely"]}).json()
+    assert body == {"batch_id": "batch7", "trashed": 2}
+    assert [x.id for x in seen] == ["emptyA", "lonely"]
+
+
+def test_trash_requires_write_access(client, monkeypatch):
+    monkeypatch.setattr(webapp.auth, "load_credentials", lambda write_access=False: None)
+    assert client.post("/api/trash", json={"file_ids": ["lonely"]}).status_code == 403
 
 
 def test_scan_conflict_while_busy(client):

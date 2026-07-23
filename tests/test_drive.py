@@ -86,6 +86,24 @@ def test_folder_paths_resolved_and_folders_excluded():
     files = DriveClient(FakeService(FakeFiles(pages))).list_owned_files()
     assert len(files) == 1
     assert files[0].path == "/Photos/2024"
+    assert files[0].parent == "sub"
+
+
+def test_list_owned_items_returns_folders_with_paths():
+    pages = [
+        {
+            "files": [
+                {"id": "root-folder", "name": "Photos", "mimeType": FOLDER_MIME},
+                {"id": "sub", "name": "2024", "mimeType": FOLDER_MIME, "parents": ["root-folder"]},
+            ]
+        }
+    ]
+    files, folders = DriveClient(FakeService(FakeFiles(pages))).list_owned_items()
+    assert files == []
+    by_id = {f.id: f for f in folders}
+    assert by_id["sub"].path == "/Photos"
+    assert by_id["sub"].parent == "root-folder"
+    assert by_id["root-folder"].path == "/"
 
 
 def test_backoff_retries_then_succeeds():
