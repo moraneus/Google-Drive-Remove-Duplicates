@@ -56,6 +56,19 @@ def test_auth_status(client):
     assert body["connected"] is False
 
 
+def test_upload_credentials_happy_path(client):
+    content = '{"installed": {"client_id": "abc", "client_secret": "xyz"}}'
+    body = client.post("/api/auth/credentials", json={"content": content}).json()
+    assert body["saved"] is True
+    assert client.get("/api/auth/status").json()["has_client_secrets"] is True
+
+
+def test_upload_credentials_rejects_invalid(client):
+    resp = client.post("/api/auth/credentials", json={"content": "garbage"})
+    assert resp.status_code == 400
+    assert "valid JSON" in resp.json()["detail"]
+
+
 def test_scan_result_marks_suggested_trash(client):
     body = client.get("/api/scan/result?strategy=newest").json()
     group = body["groups"][0]

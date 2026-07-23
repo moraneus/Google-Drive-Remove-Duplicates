@@ -62,6 +62,54 @@ tr.trash td { color: var(--danger); }
 tr.keep td { color: var(--keep); }
 td.path { color: var(--muted); }
 a { color: var(--accent); }
+.setup-steps { margin: 0.5rem 0 1rem; padding-left: 1.4rem; }
+.setup-steps li { margin: 0.35rem 0; }
+.upload-btn {
+  display: inline-block;
+  background: var(--accent);
+  color: #082f49;
+  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.warn {
+  background: rgb(248 113 113 / 0.08);
+  border: 1px solid rgb(248 113 113 / 0.45);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.tip {
+  position: relative;
+  cursor: help;
+  color: var(--accent);
+  font-size: 0.85em;
+  margin-left: 0.15rem;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: 140%;
+  background: #0b1120;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  width: 280px;
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.tip:hover::after, .tip:focus::after { opacity: 1; }
+
 dialog {
   background: var(--card); color: var(--text); border: 1px solid var(--border);
   border-radius: 12px; padding: 1.5rem; max-width: 480px;

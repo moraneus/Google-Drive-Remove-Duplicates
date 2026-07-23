@@ -16,9 +16,40 @@
   <section id="stage-connect" class="card">
     <h2>1 · Connect</h2>
     <p id="auth-info">Checking connection…</p>
-    <p class="hint" id="secrets-hint" hidden>
-      Place your OAuth <code>credentials.json</code> next to the app (see README) and reload.
-    </p>
+
+    <div id="setup-panel" hidden>
+      <p>To connect, the app needs its own free Google <b>OAuth client</b>
+        <span class="tip" tabindex="0" data-tip="OAuth is how Google lets an app act on your behalf without ever seeing your password. The client file identifies this app to Google. You create it once, in your own Google account — it takes about 5 minutes.">ⓘ</span>
+        — a one-time setup:</p>
+      <ol class="setup-steps">
+        <li>
+          <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a Google Cloud project</a>
+          <span class="tip" tabindex="0" data-tip="Any name works, e.g. 'drive-dedupe'. It's free — no billing account needed.">ⓘ</span>
+        </li>
+        <li>
+          <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Enable the Google Drive API</a>
+          <span class="tip" tabindex="0" data-tip="Make sure your new project is selected in the top bar, then click 'Enable'.">ⓘ</span>
+        </li>
+        <li>
+          <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Set up the consent screen</a>
+          <span class="tip" tabindex="0" data-tip="Choose 'External' and fill in an app name and your email. Then, under Audience → Test users, add your own Google address — that lets you use the app without Google's review process.">ⓘ</span>
+        </li>
+        <li>
+          <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Create an OAuth client</a> and download its JSON
+          <span class="tip" tabindex="0" data-tip="Click 'Create client', pick application type 'Desktop app', then download the JSON file. That's the file to upload below.">ⓘ</span>
+        </li>
+      </ol>
+      <div class="row">
+        <label class="upload-btn" for="credentials-file">⬆ Upload the downloaded JSON file</label>
+        <input type="file" id="credentials-file" accept=".json,application/json" hidden>
+        <span id="upload-result" class="progress"></span>
+      </div>
+      <p class="warn">⚠️ <b>Keep this file private.</b> It identifies the app to Google —
+        don't share it, email it, or commit it to git. Uploading stores it only on this
+        computer (<code>~/.gdrive-dedupe/credentials.json</code>), and you can delete it
+        there any time.</p>
+    </div>
+
     <div class="row">
       <button id="btn-connect">Connect Google Drive (read-only)</button>
       <button id="btn-disconnect" class="ghost" hidden>Disconnect</button>

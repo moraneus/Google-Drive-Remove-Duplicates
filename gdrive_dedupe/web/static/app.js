@@ -20,14 +20,39 @@ function show(id, visible) {
 async function refreshAuth() {
   const status = await api("/api/auth/status");
   const connected = status.connected;
-  $("#auth-info").textContent = connected
-    ? `Connected${status.write_access ? " (write access granted)" : " (read-only)"}`
-    : "Not connected.";
-  show("#secrets-hint", !connected && !status.has_client_secrets);
+  if (connected) {
+    $("#auth-info").textContent =
+      `Connected${status.write_access ? " (write access granted)" : " (read-only)"}`;
+  } else if (status.has_client_secrets) {
+    $("#auth-info").textContent = "OAuth client configured ✓ — ready to connect.";
+  } else {
+    $("#auth-info").textContent = "Not connected — one-time setup needed:";
+  }
+  show("#setup-panel", !connected && !status.has_client_secrets);
   $("#btn-connect").hidden = connected;
+  $("#btn-connect").disabled = !status.has_client_secrets;
   $("#btn-disconnect").hidden = !connected;
   show("#stage-scan", connected);
   return status;
+}
+
+async function uploadCredentials(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const content = await file.text();
+  try {
+    await api("/api/auth/credentials", {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+    $("#upload-result").textContent = "Saved ✓ — now click Connect below.";
+    await refreshAuth();
+    show("#setup-panel", true); // keep the success message visible until they connect
+  } catch (err) {
+    $("#upload-result").textContent = `${err.message}`;
+  } finally {
+    event.target.value = "";
+  }
 }
 
 async function connect(writeAccess) {
@@ -322,6 +347,7 @@ async function undo() {
   }
 }
 
+$("#credentials-file").addEventListener("change", uploadCredentials);
 $("#btn-connect").addEventListener("click", () => connect(false));
 $("#btn-disconnect").addEventListener("click", async () => {
   await api("/api/auth/disconnect", { method: "POST" });
