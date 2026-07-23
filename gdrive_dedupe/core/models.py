@@ -13,6 +13,7 @@ class DriveFile:
     mime_type: str = ""
     web_view_link: str = ""
     path: str = "/"
+    parent: str = ""  # id of the first parent folder, "" if unknown/root
 
 
 @dataclass
@@ -34,6 +35,8 @@ class ScanResult:
     total_files: int
     skipped_no_md5: int
     groups: list[DuplicateGroup] = field(default_factory=list)
+    files: list[DriveFile] = field(default_factory=list)
+    folders: list[DriveFile] = field(default_factory=list)
 
     @property
     def duplicate_file_count(self) -> int:

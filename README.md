@@ -28,6 +28,10 @@ audit log and one-click undo.
   the web UI always shows a confirmation dialog listing exactly what will be trashed.
 - **Trash only, with undo** — nothing is permanently deleted. Every batch is recorded
   in a local audit log, and the last batch can be restored with one command or click.
+- **Empty-folder cleanup** — finds folders with no files anywhere inside them
+  (recursively) and removes them in one confirmed batch.
+- **Old-file finder** — lists files last modified before a date you choose, so you can
+  review and clear out ancient files.
 - **Only your files** — files merely *shared with you* are never touched.
 - **Private** — no telemetry, no third-party servers; the web server binds to
   `127.0.0.1` only.
@@ -92,6 +96,18 @@ Nothing is trashed without an explicit confirmation listing every affected file:
 
 ![Confirmation dialog before moving files to trash](docs/img/confirm.png)
 
+After a scan, two extra tools use the same data — no additional API calls:
+
+**Empty folders** — folders whose entire subtree contains no files. Only the topmost
+empty folders are listed; trashing them covers their empty subfolders.
+
+![Empty folders tool](docs/img/tool-folders.png)
+
+**Older files** — everything last modified before a date you pick. These are unique
+files, so nothing is pre-selected.
+
+![Older files tool](docs/img/tool-old.png)
+
 *Screenshots show demo data.*
 
 ## CLI usage
@@ -104,6 +120,11 @@ uv run gdrive-dedupe clean --apply         # trash duplicates, keeping the newes
 uv run gdrive-dedupe clean --strategy oldest --apply   # keep the oldest copy instead
 uv run gdrive-dedupe undo                  # restore the last trashed batch
 uv run gdrive-dedupe web --port 9000       # web UI on another port
+
+uv run gdrive-dedupe empty-folders                     # list folders with no files inside
+uv run gdrive-dedupe empty-folders --apply             # ...and move them to trash
+uv run gdrive-dedupe old-files --before 2020-01-01     # list files not modified since 2020
+uv run gdrive-dedupe old-files --before 2020-01-01 --apply   # ...and move them to trash
 ```
 
 ## How duplicates are detected

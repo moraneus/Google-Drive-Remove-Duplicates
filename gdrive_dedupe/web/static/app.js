@@ -81,6 +81,8 @@ function renderResult() {
   const r = currentResult;
   show("#stage-review", true);
   show("#stage-clean", r.groups.length > 0);
+  show("#stage-folders", true);
+  show("#stage-old", true);
   $("#summary").innerHTML = `
     <div><b>${r.total_files}</b> files scanned</div>
     <div><b>${r.duplicate_groups}</b> duplicate groups</div>
@@ -162,7 +164,18 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-async function confirmClean() {
+let pendingTrash = null; // { ids, endpoint }
+
+function openConfirm(ids, names, endpoint) {
+  pendingTrash = { ids, endpoint };
+  $("#confirm-list").innerHTML = names.slice(0, 15)
+    .map((n) => `<li>${escapeHtml(n)}</li>`).join("");
+  $("#confirm-count").textContent = names.length > 15
+    ? `…and ${names.length - 15} more.` : `${names.length} item(s) total.`;
+  $("#confirm-dialog").showModal();
+}
+
+function confirmClean() {
   const ids = selectedIds();
   const names = [];
   for (const group of currentResult.groups) {
@@ -170,33 +183,133 @@ async function confirmClean() {
       if (ids.includes(file.id)) names.push(`${file.name} (${file.path})`);
     }
   }
-  $("#confirm-list").innerHTML = names.slice(0, 15)
-    .map((n) => `<li>${escapeHtml(n)}</li>`).join("");
-  $("#confirm-count").textContent = names.length > 15
-    ? `…and ${names.length - 15} more.` : `${names.length} file(s) total.`;
-  $("#confirm-dialog").showModal();
+  openConfirm(ids, names, "/api/clean");
 }
 
-async function runClean() {
+async function runPendingTrash() {
   $("#confirm-dialog").close();
+  if (!pendingTrash) return;
   const status = await api("/api/auth/status");
   if (!status.write_access) {
     $("#clean-result").textContent =
-      "Requesting write access — approve the Google consent tab, then click Clean again.";
+      "Requesting write access — approve the Google consent tab, then confirm again.";
     await connect(true);
     return;
   }
   try {
-    const body = await api("/api/clean", {
+    const body = await api(pendingTrash.endpoint, {
       method: "POST",
-      body: JSON.stringify({ file_ids: selectedIds() }),
+      body: JSON.stringify({ file_ids: pendingTrash.ids }),
     });
     $("#clean-result").textContent =
-      `Moved ${body.trashed} file(s) to trash (batch ${body.batch_id}).`;
+      `Moved ${body.trashed} item(s) to trash (batch ${body.batch_id}). ` +
+      "Re-scan to refresh the lists.";
     $("#btn-undo").hidden = false;
+    pendingTrash = null;
   } catch (err) {
     $("#clean-result").textContent = `Error: ${err.message}`;
   }
+}
+
+// ---- Extra tools: empty folders & older files ----
+
+function checkedIds(containerSel) {
+  return [...document.querySelectorAll(`${containerSel} input[type="checkbox"]:checked`)]
+    .map((el) => el.dataset.id);
+}
+
+function colorRows(container) {
+  container.querySelectorAll("tr").forEach((row) => {
+    const box = row.querySelector("input");
+    if (box) row.className = box.checked ? "trash" : "";
+  });
+}
+
+const toolItems = { folders: [], old: [] };
+
+function renderToolTable(containerSel, items, preChecked) {
+  const container = $(containerSel);
+  container.innerHTML = "";
+  if (!items.length) return;
+  const table = document.createElement("table");
+  table.innerHTML =
+    "<tr><th></th><th>Name</th><th>Folder</th><th>Modified</th><th>Size</th><th></th></tr>";
+  for (const item of items) {
+    const row = document.createElement("tr");
+    row.className = preChecked ? "trash" : "";
+
+    const checkCell = document.createElement("td");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.id = item.id;
+    box.checked = preChecked;
+    checkCell.appendChild(box);
+
+    const nameCell = document.createElement("td");
+    nameCell.textContent = item.name;
+    const pathCell = document.createElement("td");
+    pathCell.className = "path";
+    pathCell.textContent = item.path;
+    const dateCell = document.createElement("td");
+    dateCell.textContent = (item.modified_time || "").slice(0, 10);
+    const sizeCell = document.createElement("td");
+    sizeCell.textContent = item.size ? item.size_human : "";
+    const linkCell = document.createElement("td");
+    if (item.web_view_link) {
+      const link = document.createElement("a");
+      link.href = item.web_view_link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "view";
+      linkCell.appendChild(link);
+    }
+    row.append(checkCell, nameCell, pathCell, dateCell, sizeCell, linkCell);
+    table.appendChild(row);
+  }
+  container.appendChild(table);
+}
+
+async function findFolders() {
+  try {
+    const body = await api("/api/empty-folders");
+    toolItems.folders = body.folders;
+    renderToolTable("#folders-list", body.folders, true);
+    $("#folders-info").textContent = body.count
+      ? `${body.count} empty folder(s) found.` : "No empty folders 🎉";
+    $("#btn-trash-folders").hidden = body.count === 0;
+  } catch (err) {
+    $("#folders-info").textContent = `Error: ${err.message}`;
+  }
+}
+
+async function findOld() {
+  const before = $("#before-date").value;
+  if (!before) {
+    $("#old-info").textContent = "Pick a date first.";
+    return;
+  }
+  try {
+    const body = await api(`/api/old-files?before=${before}`);
+    toolItems.old = body.files;
+    renderToolTable("#old-list", body.files, false);
+    $("#old-info").textContent = body.count
+      ? `${body.count} file(s) older than ${before} — ${body.total_human} total.`
+      : `No files older than ${before}.`;
+    $("#btn-trash-old").hidden = body.count === 0;
+  } catch (err) {
+    $("#old-info").textContent = `Error: ${err.message}`;
+  }
+}
+
+function trashToolSelection(listSel, items, kind) {
+  const ids = checkedIds(listSel);
+  const names = items
+    .filter((x) => ids.includes(x.id))
+    .map((x) => (kind === "folder"
+      ? `${x.path.replace(/\/$/, "")}/${x.name} (folder)`
+      : `${x.name} (${x.path})`));
+  if (!ids.length) return;
+  openConfirm(ids, names, "/api/trash");
 }
 
 async function undo() {
@@ -218,8 +331,16 @@ $("#btn-scan").addEventListener("click", startScan);
 $("#strategy").addEventListener("change", loadResult);
 $("#groups").addEventListener("change", updateCleanSummary);
 $("#btn-clean").addEventListener("click", confirmClean);
-$("#confirm-yes").addEventListener("click", runClean);
+$("#confirm-yes").addEventListener("click", runPendingTrash);
 $("#confirm-no").addEventListener("click", () => $("#confirm-dialog").close());
 $("#btn-undo").addEventListener("click", undo);
+$("#btn-find-folders").addEventListener("click", findFolders);
+$("#btn-find-old").addEventListener("click", findOld);
+$("#btn-trash-folders").addEventListener("click",
+  () => trashToolSelection("#folders-list", toolItems.folders, "folder"));
+$("#btn-trash-old").addEventListener("click",
+  () => trashToolSelection("#old-list", toolItems.old, "file"));
+$("#folders-list").addEventListener("change", (e) => colorRows(e.currentTarget));
+$("#old-list").addEventListener("change", (e) => colorRows(e.currentTarget));
 
 refreshAuth();

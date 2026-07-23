@@ -8,6 +8,8 @@ runner = CliRunner()
 
 
 def result_fixture():
+    from gdrive_dedupe.core.drive import FOLDER_MIME
+
     files = [
         DriveFile(
             id="new",
@@ -26,8 +28,23 @@ def result_fixture():
             path="/Backup",
         ),
     ]
+    folders = [
+        DriveFile(
+            id="empty1",
+            name="Old Backups",
+            size=0,
+            md5=None,
+            modified_time="",
+            mime_type=FOLDER_MIME,
+            path="/Archive",
+        )
+    ]
     return ScanResult(
-        total_files=10, skipped_no_md5=1, groups=[DuplicateGroup(md5="m", files=files)]
+        total_files=10,
+        skipped_no_md5=1,
+        groups=[DuplicateGroup(md5="m", files=files)],
+        files=files,
+        folders=folders,
     )
 
 
@@ -79,6 +96,45 @@ def test_clean_apply_aborts_on_no(monkeypatch):
     )
     runner.invoke(cli.app, ["clean", "--apply"], input="n\n")
     assert trashed == []
+
+
+def test_empty_folders_dry_run(monkeypatch):
+    trashed = []
+    monkeypatch.setattr(
+        cli.actions,
+        "trash_files",
+        lambda client, items, progress_cb=None: trashed.extend(items) or "b1",
+    )
+    result = runner.invoke(cli.app, ["empty-folders"])
+    assert result.exit_code == 0
+    assert "Old Backups" in result.output
+    assert "dry run" in result.output.lower()
+    assert trashed == []
+
+
+def test_empty_folders_apply(monkeypatch):
+    trashed = []
+    monkeypatch.setattr(
+        cli.actions,
+        "trash_files",
+        lambda client, items, progress_cb=None: trashed.extend(items) or "b1",
+    )
+    result = runner.invoke(cli.app, ["empty-folders", "--apply"], input="y\n")
+    assert result.exit_code == 0
+    assert [x.id for x in trashed] == ["empty1"]
+
+
+def test_old_files_dry_run():
+    result = runner.invoke(cli.app, ["old-files", "--before", "2021-01-01"])
+    assert result.exit_code == 0
+    assert "report copy.pdf" in result.output
+    assert "report.pdf  (/Docs)" not in result.output
+    assert "dry run" in result.output.lower()
+
+
+def test_old_files_rejects_bad_date():
+    result = runner.invoke(cli.app, ["old-files", "--before", "nonsense"])
+    assert result.exit_code != 0
 
 
 def test_undo(monkeypatch):

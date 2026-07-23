@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] — 2026-07-23
+
+### Added
+- **Empty-folder cleanup** (web card + `gdrive-dedupe empty-folders [--apply]`):
+  finds folders whose entire subtree contains no files; only the topmost empty
+  folders are offered, and trashing them covers their empty subfolders.
+- **Old-file finder** (web card + `gdrive-dedupe old-files --before YYYY-MM-DD
+  [--apply]`): lists files last modified before a chosen date, oldest first,
+  with total size. Nothing is pre-selected — these are unique files.
+- Both tools reuse the scan's data (no extra API calls) and the existing safety
+  model: dry-run/confirmation, trash-only, audit log, undo.
+
 ## [2.0.0] — 2026-07-23
 
 Complete rewrite as the `gdrive-dedupe` package.

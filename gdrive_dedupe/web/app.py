@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,6 +28,22 @@ class CleanBody(BaseModel):
     file_ids: list[str]
 
 
+class TrashBody(BaseModel):
+    file_ids: list[str]
+
+
+def _file_dict(f) -> dict:
+    return {
+        "id": f.id,
+        "name": f.name,
+        "path": f.path,
+        "size": f.size,
+        "size_human": human_bytes(f.size),
+        "modified_time": f.modified_time,
+        "web_view_link": f.web_view_link,
+    }
+
+
 def serialize_result(result: ScanResult, strategy: str) -> dict:
     groups = []
     for group in result.groups:
@@ -39,16 +56,7 @@ def serialize_result(result: ScanResult, strategy: str) -> dict:
                 "wasted_bytes": group.wasted_bytes,
                 "wasted_human": human_bytes(group.wasted_bytes),
                 "files": [
-                    {
-                        "id": f.id,
-                        "name": f.name,
-                        "path": f.path,
-                        "size": f.size,
-                        "modified_time": f.modified_time,
-                        "web_view_link": f.web_view_link,
-                        "suggested_trash": f.id != keeper.id,
-                    }
-                    for f in group.files
+                    {**_file_dict(f), "suggested_trash": f.id != keeper.id} for f in group.files
                 ],
             }
         )
@@ -172,6 +180,51 @@ def create_app() -> FastAPI:
         files = [known[i] for i in body.file_ids]
         batch_id = actions.trash_files(client, files)
         return {"batch_id": batch_id, "trashed": len(files)}
+
+    @app.get("/api/empty-folders")
+    def empty_folders():
+        state: ScanState = app.state.scan
+        if state.result is None:
+            raise HTTPException(status_code=404, detail="no scan result yet")
+        found = scanner.find_empty_folders(state.result.files, state.result.folders)
+        return {"folders": [_file_dict(f) for f in found], "count": len(found)}
+
+    @app.get("/api/old-files")
+    def old_files(before: str):
+        state: ScanState = app.state.scan
+        if state.result is None:
+            raise HTTPException(status_code=404, detail="no scan result yet")
+        try:
+            datetime.fromisoformat(before)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="before must be a date like 2020-01-01"
+            ) from exc
+        found = scanner.find_old_files(state.result.files, before)
+        total = sum(f.size for f in found)
+        return {
+            "files": [_file_dict(f) for f in found],
+            "count": len(found),
+            "total_bytes": total,
+            "total_human": human_bytes(total),
+        }
+
+    @app.post("/api/trash")
+    def trash(body: TrashBody):
+        """Trash scanned files or empty folders selected in the extra tools."""
+        state: ScanState = app.state.scan
+        if state.result is None:
+            raise HTTPException(status_code=400, detail="run a scan first")
+        client = _drive_client(write_access=True)
+        known = {f.id: f for f in state.result.files}
+        for folder in scanner.find_empty_folders(state.result.files, state.result.folders):
+            known[folder.id] = folder
+        unknown = set(body.file_ids) - known.keys()
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"unknown ids: {sorted(unknown)}")
+        items = [known[i] for i in body.file_ids]
+        batch_id = actions.trash_files(client, items)
+        return {"batch_id": batch_id, "trashed": len(items)}
 
     @app.post("/api/undo")
     def undo():

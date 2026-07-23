@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -90,6 +91,66 @@ def clean(
         progress_cb=lambda done, n: typer.echo(f"  trashed {done}/{n}", err=True),
     )
     typer.echo(f"Done — batch {batch_id}. Run 'gdrive-dedupe undo' to revert.")
+
+
+def _confirm_and_trash(client: DriveClient, items, noun: str) -> None:
+    typer.confirm(f"Move these {noun} to Drive's trash?", abort=True)
+    batch_id = actions.trash_files(
+        client,
+        items,
+        progress_cb=lambda done, n: typer.echo(f"  trashed {done}/{n}", err=True),
+    )
+    typer.echo(f"Done — batch {batch_id}. Run 'gdrive-dedupe undo' to revert.")
+
+
+@app.command("empty-folders")
+def empty_folders(
+    apply: bool = typer.Option(False, "--apply", help="Actually move them to trash"),
+):
+    """Find folders with no files anywhere inside. Dry run unless --apply."""
+    client = _connect(write_access=apply)
+    result = _run_scan(client)
+    found = scanner.find_empty_folders(result.files, result.folders)
+    if not found:
+        typer.echo("No empty folders found 🎉")
+        raise typer.Exit()
+    for item in found:
+        typer.echo(f"  - {item.path.rstrip('/')}/{item.name}")
+    plural = "s" if len(found) != 1 else ""
+    typer.echo(f"\n{len(found)} empty folder{plural} (contents counted recursively).")
+    if not apply:
+        typer.echo("Dry run — nothing was changed. Re-run with --apply to move them to trash.")
+        raise typer.Exit()
+    _confirm_and_trash(client, found, "folders")
+
+
+@app.command("old-files")
+def old_files(
+    before: str = typer.Option(..., help="Cutoff date, e.g. 2020-01-01 (UTC)"),
+    apply: bool = typer.Option(False, "--apply", help="Actually move them to trash"),
+):
+    """Find files last modified before a date. Dry run unless --apply."""
+    try:
+        datetime.fromisoformat(before)
+    except ValueError:
+        raise typer.BadParameter("--before must be a date like 2020-01-01") from None
+    client = _connect(write_access=apply)
+    result = _run_scan(client)
+    found = scanner.find_old_files(result.files, before)
+    if not found:
+        typer.echo(f"No files modified before {before}.")
+        raise typer.Exit()
+    for file in found:
+        typer.echo(
+            f"  - {file.name}  ({file.path})  modified {file.modified_time[:10]}  "
+            f"{human_bytes(file.size)}"
+        )
+    total = sum(f.size for f in found)
+    typer.echo(f"\n{len(found)} file(s) older than {before}, {human_bytes(total)} total.")
+    if not apply:
+        typer.echo("Dry run — nothing was changed. Re-run with --apply to move them to trash.")
+        raise typer.Exit()
+    _confirm_and_trash(client, found, "files")
 
 
 @app.command()

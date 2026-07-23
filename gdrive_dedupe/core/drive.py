@@ -32,7 +32,10 @@ class DriveClient:
                     raise
                 self._sleep(min(2**attempt + random.random(), 32))
 
-    def list_owned_files(self, progress_cb: Callable[[int], None] | None = None) -> list[DriveFile]:
+    def list_owned_items(
+        self, progress_cb: Callable[[int], None] | None = None
+    ) -> tuple[list[DriveFile], list[DriveFile]]:
+        """Return (files, folders) you own, with folder paths resolved."""
         raw: list[dict] = []
         page_token = None
         while True:
@@ -50,21 +53,27 @@ class DriveClient:
             page_token = response.get("nextPageToken")
             if not page_token:
                 break
-        folders = {f["id"]: f for f in raw if f.get("mimeType") == FOLDER_MIME}
-        return [
-            DriveFile(
-                id=f["id"],
-                name=f.get("name", ""),
-                size=int(f.get("size", 0)),
-                md5=f.get("md5Checksum"),
-                modified_time=f.get("modifiedTime", ""),
-                mime_type=f.get("mimeType", ""),
-                web_view_link=f.get("webViewLink", ""),
-                path=self._resolve_path(f, folders),
+        folder_map = {f["id"]: f for f in raw if f.get("mimeType") == FOLDER_MIME}
+
+        def to_drive_file(item: dict) -> DriveFile:
+            return DriveFile(
+                id=item["id"],
+                name=item.get("name", ""),
+                size=int(item.get("size", 0)),
+                md5=item.get("md5Checksum"),
+                modified_time=item.get("modifiedTime", ""),
+                mime_type=item.get("mimeType", ""),
+                web_view_link=item.get("webViewLink", ""),
+                path=self._resolve_path(item, folder_map),
+                parent=(item.get("parents") or [""])[0],
             )
-            for f in raw
-            if f.get("mimeType") != FOLDER_MIME
-        ]
+
+        files = [to_drive_file(f) for f in raw if f.get("mimeType") != FOLDER_MIME]
+        folders = [to_drive_file(f) for f in raw if f.get("mimeType") == FOLDER_MIME]
+        return files, folders
+
+    def list_owned_files(self, progress_cb: Callable[[int], None] | None = None) -> list[DriveFile]:
+        return self.list_owned_items(progress_cb)[0]
 
     @staticmethod
     def _resolve_path(item: dict, folders: dict[str, dict]) -> str:

@@ -61,6 +61,38 @@
     </div>
     <p id="clean-result"></p>
   </section>
+
+  <!-- Tool: Empty folders -->
+  <section id="stage-folders" class="card" hidden>
+    <h2>5 · Empty folders</h2>
+    <p class="hint">Folders with no files anywhere inside (folders that only contain other
+      empty folders count too). Trashing a folder also removes its empty subfolders.</p>
+    <div class="row">
+      <button id="btn-find-folders">Find empty folders</button>
+      <span id="folders-info" class="progress"></span>
+    </div>
+    <div id="folders-list"></div>
+    <div class="row">
+      <button id="btn-trash-folders" class="danger" hidden>Move selected folders to trash…</button>
+    </div>
+  </section>
+
+  <!-- Tool: Older files -->
+  <section id="stage-old" class="card" hidden>
+    <h2>6 · Older files</h2>
+    <p class="hint">Find files you haven't touched in years. These are unique files (not
+      duplicates), so nothing is pre-selected — tick only what you're sure about.</p>
+    <div class="row">
+      <label for="before-date">Last modified before</label>
+      <input type="date" id="before-date">
+      <button id="btn-find-old">Find</button>
+      <span id="old-info" class="progress"></span>
+    </div>
+    <div id="old-list"></div>
+    <div class="row">
+      <button id="btn-trash-old" class="danger" hidden>Move selected files to trash…</button>
+    </div>
+  </section>
 </main>
 
 <dialog id="confirm-dialog">
