@@ -32,9 +32,7 @@ class DriveClient:
                     raise
                 self._sleep(min(2**attempt + random.random(), 32))
 
-    def list_owned_files(
-        self, progress_cb: Callable[[int], None] | None = None
-    ) -> list[DriveFile]:
+    def list_owned_files(self, progress_cb: Callable[[int], None] | None = None) -> list[DriveFile]:
         raw: list[dict] = []
         page_token = None
         while True:
