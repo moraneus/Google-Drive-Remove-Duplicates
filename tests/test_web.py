@@ -1,0 +1,103 @@
+import pytest
+from fastapi.testclient import TestClient
+
+from gdrive_dedupe.core.models import DriveFile, DuplicateGroup, ScanResult
+from gdrive_dedupe.web import app as webapp
+
+
+def f(id, md5="m", modified="2024-01-01T00:00:00Z"):
+    return DriveFile(id=id, name=f"{id}.txt", size=10, md5=md5, modified_time=modified)
+
+
+RESULT = ScanResult(
+    total_files=4,
+    skipped_no_md5=0,
+    groups=[
+        DuplicateGroup(
+            md5="m",
+            files=[
+                f("keep", modified="2024-06-01T00:00:00Z"),
+                f("dupe", modified="2020-01-01T00:00:00Z"),
+            ],
+        )
+    ],
+)
+
+
+@pytest.fixture()
+def client(monkeypatch, tmp_path):
+    monkeypatch.setenv("GDRIVE_DEDUPE_HOME", str(tmp_path))
+    application = webapp.create_app()
+    application.state.scan.finish(RESULT)
+    return TestClient(application)
+
+
+def connected(monkeypatch, write_access):
+    monkeypatch.setattr(
+        webapp.auth,
+        "auth_status",
+        lambda: {"connected": True, "write_access": write_access, "has_client_secrets": True},
+    )
+    monkeypatch.setattr(webapp.auth, "load_credentials", lambda write_access=False: object())
+    monkeypatch.setattr(webapp.auth, "build_service", lambda creds: object())
+
+
+def test_auth_status(client):
+    body = client.get("/api/auth/status").json()
+    assert body["connected"] is False
+
+
+def test_scan_result_marks_suggested_trash(client):
+    body = client.get("/api/scan/result?strategy=newest").json()
+    group = body["groups"][0]
+    flags = {x["id"]: x["suggested_trash"] for x in group["files"]}
+    assert flags == {"keep": False, "dupe": True}
+    assert body["reclaimable_bytes"] == 10
+
+
+def test_clean_requires_write_access(client, monkeypatch):
+    monkeypatch.setattr(webapp.auth, "load_credentials", lambda write_access=False: None)
+    resp = client.post("/api/clean", json={"file_ids": ["dupe"]})
+    assert resp.status_code == 403
+
+
+def test_clean_rejects_unknown_ids(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    resp = client.post("/api/clean", json={"file_ids": ["not-in-result"]})
+    assert resp.status_code == 400
+
+
+def test_clean_rejects_trashing_whole_group(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    resp = client.post("/api/clean", json={"file_ids": ["keep", "dupe"]})
+    assert resp.status_code == 400
+
+
+def test_clean_happy_path(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(
+        webapp.actions, "trash_files", lambda client_, files, progress_cb=None: "batch42"
+    )
+    body = client.post("/api/clean", json={"file_ids": ["dupe"]}).json()
+    assert body == {"batch_id": "batch42", "trashed": 1}
+
+
+def test_undo_when_empty_is_404(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+
+    def boom(client_):
+        raise LookupError("nothing to undo")
+
+    monkeypatch.setattr(webapp.actions, "undo_last", boom)
+    assert client.post("/api/undo").status_code == 404
+
+
+def test_scan_conflict_while_busy(client):
+    client.app.state.scan.begin("scanning")
+    assert client.post("/api/scan").status_code == 409
+
+
+def test_serves_index(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
