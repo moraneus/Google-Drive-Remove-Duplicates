@@ -86,6 +86,14 @@ The interface walks through four stages:
 4. **Clean** — confirmation dialog → files move to Drive's trash → **Undo** if you
    change your mind.
 
+![Reviewing duplicate groups — keepers in green, copies selected for trash in red](docs/img/review.png)
+
+Nothing is trashed without an explicit confirmation listing every affected file:
+
+![Confirmation dialog before moving files to trash](docs/img/confirm.png)
+
+*Screenshots show demo data.*
+
 ## CLI usage
 
 ```bash
