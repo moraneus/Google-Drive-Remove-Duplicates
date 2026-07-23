@@ -45,10 +45,12 @@ button.danger { background: var(--danger); color: #450a0a; }
 .progress { color: var(--accent); font-variant-numeric: tabular-nums; }
 .stats { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; color: var(--muted); }
 .stats b { color: var(--text); font-size: 1.15rem; }
-select {
+select, input[type="date"] {
   background: var(--bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 8px; padding: 0.4rem 0.6rem;
+  font-family: inherit;
 }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); }
 details { border-top: 1px solid var(--border); padding: 0.6rem 0; }
 summary { cursor: pointer; display: flex; gap: 1rem; align-items: baseline; }
 .gname { font-weight: 600; }

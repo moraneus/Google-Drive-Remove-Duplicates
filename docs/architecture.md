@@ -8,7 +8,7 @@ gdrive_dedupe/
 │   ├── models.py          # DriveFile, DuplicateGroup, ScanResult, human_bytes
 │   ├── auth.py            # OAuth flow, token storage, two-tier scopes
 │   ├── drive.py           # DriveClient: pagination, backoff, path resolution, trash
-│   ├── scanner.py         # group_duplicates (pure) + scan (client → result)
+│   ├── scanner.py         # group_duplicates, scan, find_empty_folders, find_old_files
 │   ├── strategies.py      # keep-newest / keep-oldest selection
 │   └── actions.py         # audit-logged trash batches + undo
 ├── web/
