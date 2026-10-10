@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import http.client
 import random
+import socket
+import ssl
 import time
 from collections.abc import Callable
 
@@ -13,6 +16,19 @@ FILE_FIELDS = "id, name, size, md5Checksum, modifiedTime, mimeType, webViewLink,
 RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
 OWNED_QUERY = "trashed = false and 'me' in owners"
 
+# Transient network failures that aren't HttpErrors but are safe to retry:
+# read/connect timeouts, dropped connections, and partial TLS/HTTP reads.
+# TimeoutError covers socket.timeout on Python 3.10+; it's listed explicitly
+# for clarity. ConnectionError covers ConnectionReset/Aborted/Refused.
+RETRYABLE_NETWORK_ERRORS = (
+    TimeoutError,
+    ConnectionError,
+    socket.timeout,
+    socket.gaierror,
+    ssl.SSLError,
+    http.client.HTTPException,
+)
+
 
 class DriveClient:
     """Thin wrapper over the Drive v3 service: pagination, backoff, trash."""
@@ -22,15 +38,21 @@ class DriveClient:
         self.max_retries = max_retries
         self._sleep = sleep
 
+    def _backoff(self, attempt: int) -> None:
+        self._sleep(min(2**attempt + random.random(), 32))
+
     def _execute(self, request):
         for attempt in range(self.max_retries):
             try:
                 return request.execute()
             except HttpError as err:
-                status = err.resp.status
-                if status not in RETRY_STATUSES or attempt == self.max_retries - 1:
+                if err.resp.status not in RETRY_STATUSES or attempt == self.max_retries - 1:
                     raise
-                self._sleep(min(2**attempt + random.random(), 32))
+                self._backoff(attempt)
+            except RETRYABLE_NETWORK_ERRORS:
+                if attempt == self.max_retries - 1:
+                    raise
+                self._backoff(attempt)
 
     def list_owned_items(
         self, progress_cb: Callable[[int], None] | None = None
