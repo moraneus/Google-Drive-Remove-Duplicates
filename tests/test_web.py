@@ -462,3 +462,16 @@ def test_token_not_needed_for_page_and_static(token_client):
 
 def test_no_token_configured_means_open_loopback_api(client):
     assert client.get("/api/auth/status").status_code == 200
+
+
+def test_token_accepted_in_query_for_event_stream(token_client):
+    # EventSource cannot set headers, so the stream must accept ?token=
+    with token_client.stream("GET", "/api/scan/events?token=s3cret") as resp:
+        assert resp.status_code == 200
+        first = next(resp.iter_lines())
+        assert first.startswith("data:")
+
+
+def test_query_token_not_accepted_for_other_endpoints(token_client):
+    assert token_client.get("/api/auth/status?token=s3cret").status_code == 401
+    assert token_client.post("/api/scan?token=s3cret").status_code == 401

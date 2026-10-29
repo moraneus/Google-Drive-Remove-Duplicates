@@ -159,13 +159,18 @@ async function connect(writeAccess) {
 
 // ---- scan ----
 
+// Follows the scan's progress stream. Also used on page load: the server
+// answers with the current state, so a running scan is resumed and a finished
+// one is shown again without rescanning.
 function watchScan() {
   const token = accessToken();
   const url = token ? `/api/scan/events?token=${encodeURIComponent(token)}` : "/api/scan/events";
   const source = new EventSource(url);
   source.onmessage = async (event) => {
     const snap = JSON.parse(event.data);
-    if (snap.status === "scanning") {
+    if (snap.status === "idle" || snap.status === "connecting") {
+      source.close();
+    } else if (snap.status === "scanning") {
       const count = snap.progress.files_fetched || 0;
       $("#scan-progress").textContent = `Scanning… ${plural(count, "file", "files")} so far`;
     } else if (snap.status === "done") {
@@ -772,4 +777,8 @@ $("#folders-list").addEventListener("change", (e) => colorRows(e.currentTarget))
 $("#old-list").addEventListener("change", (e) => colorRows(e.currentTarget));
 $("#largest-list").addEventListener("change", (e) => colorRows(e.currentTarget));
 
-refreshAuth().then((status) => { if (status.connected) loadBatches(); });
+refreshAuth().then((status) => {
+  if (!status.connected) return;
+  loadBatches();
+  watchScan();
+});

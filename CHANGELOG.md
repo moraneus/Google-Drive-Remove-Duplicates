@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format is based on
   focus, reduced-motion support, and a layout that works at phone width. Nothing is
   loaded from third parties; system fonts only. All screenshots refreshed.
 
+### Fixed
+- In access-token mode (Docker, `--host`), the live scan progress stream was refused
+  because a browser `EventSource` cannot send headers; the stream now accepts the token
+  as a query parameter. The page also resumes a running scan, or shows the last result,
+  after a reload instead of offering a bare Scan button.
+
 ### Security
 - The web server only answers requests whose `Host` it knows (DNS-rebinding defense)
   and refuses any request whose `Origin` is not exactly its own scheme, host and port

@@ -161,6 +161,10 @@ def create_app(allowed_hosts: list[str] | None = None, token: str | None = None)
         async def require_token(request: Request, call_next):
             if request.url.path.startswith("/api/"):
                 supplied = request.headers.get("x-dedupe-token", "")
+                # The browser's EventSource cannot set headers, so the read-only
+                # progress stream may carry the token as a query parameter instead.
+                if not supplied and request.url.path == "/api/scan/events":
+                    supplied = request.query_params.get("token", "")
                 if not secrets.compare_digest(supplied, token):
                     return JSONResponse(
                         status_code=401,
