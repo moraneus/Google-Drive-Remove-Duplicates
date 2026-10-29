@@ -35,7 +35,7 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["typer.Option"]
+extend-immutable-calls = ["typer.Option", "fastapi.Query"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

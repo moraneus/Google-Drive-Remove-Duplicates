@@ -54,6 +54,8 @@
       <button id="btn-connect">Connect Google Drive (read-only)</button>
       <button id="btn-disconnect" class="ghost" hidden>Disconnect</button>
     </div>
+    <p id="auth-link" class="warn" hidden>No browser tab opened? Open this link to approve
+      access: <a id="auth-link-a" href="#" target="_blank" rel="noopener">Google consent page</a></p>
     <p class="hint">Scanning uses a read-only scope — the app cannot modify anything.</p>
   </section>
 
@@ -70,12 +72,35 @@
   <section id="stage-review" class="card" hidden>
     <h2>3 · Review duplicates</h2>
     <div id="summary" class="stats"></div>
-    <div class="row">
-      <label for="strategy">Pre-select copies to remove, keeping the</label>
-      <select id="strategy">
-        <option value="newest" selected>newest file</option>
-        <option value="oldest">oldest file</option>
-      </select>
+
+    <datalist id="folder-list"></datalist>
+    <div class="rules">
+      <div class="row">
+        <label for="scope-folder">Look only in</label>
+        <input list="folder-list" id="scope-folder" placeholder="whole Drive" size="28">
+        <span class="tip" tabindex="0" data-tip="Narrow everything below (duplicates and the tools) to one folder and its subfolders. Duplicates are then pairs that both live inside it. Clear the box for the whole Drive.">ⓘ</span>
+      </div>
+      <div class="row">
+        <label for="strategy">Pre-select copies to remove, keeping the</label>
+        <select id="strategy">
+          <option value="newest" selected>newest file</option>
+          <option value="oldest">oldest file</option>
+          <option value="shallowest">copy closest to the top</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="prefer-folder">Prefer to keep copies in</label>
+        <input list="folder-list" id="prefer-folder" placeholder="any folder" size="22">
+        <span class="tip" tabindex="0" data-tip="When a group has a copy inside this folder, that copy is kept, whatever the strategy says. The strategy still decides between several copies inside it.">ⓘ</span>
+      </div>
+      <div class="row">
+        <label for="protect-folder">Never trash anything in</label>
+        <input list="folder-list" id="protect-folder" placeholder="folder path" size="22">
+        <button id="btn-protect-add" class="ghost">Protect</button>
+        <span class="tip" tabindex="0" data-tip="Files inside protected folders are never pre-selected and the app refuses to trash them, even if you tick them. When a group has a protected copy, that copy becomes the keeper so the others can go.">ⓘ</span>
+        <span id="protect-list" class="chips"></span>
+      </div>
+      <p id="rules-error" class="error" hidden></p>
     </div>
     <div id="groups"></div>
   </section>
@@ -91,6 +116,13 @@
       <button id="btn-undo" class="ghost" hidden>Undo last batch</button>
     </div>
     <p id="clean-result"></p>
+    <details id="batches-panel" hidden>
+      <summary>Past batches &amp; freeing storage</summary>
+      <p class="hint">⚠️ Files in Drive's trash <b>still count toward your storage quota</b>
+        until the trash is emptied. "Delete permanently" empties just the files of one batch
+        — only those still in the trash — and <b>cannot be undone</b>.</p>
+      <div id="batches"></div>
+    </details>
   </section>
 
   <!-- Tool: Empty folders -->
@@ -124,6 +156,23 @@
       <button id="btn-trash-old" class="danger" hidden>Move selected files to trash…</button>
     </div>
   </section>
+
+  <!-- Tool: Largest files -->
+  <section id="stage-largest" class="card" hidden>
+    <h2>7 · Largest files</h2>
+    <p class="hint">Your biggest files, largest first — the quickest way to free space when
+      Drive is full. Nothing is pre-selected.</p>
+    <div class="row">
+      <label for="largest-limit">Show top</label>
+      <input type="number" id="largest-limit" value="50" min="1" max="1000" size="5">
+      <button id="btn-find-largest">Find</button>
+      <span id="largest-info" class="progress"></span>
+    </div>
+    <div id="largest-list"></div>
+    <div class="row">
+      <button id="btn-trash-largest" class="danger" hidden>Move selected files to trash…</button>
+    </div>
+  </section>
 </main>
 
 <dialog id="confirm-dialog">
@@ -133,6 +182,20 @@
   <div class="row">
     <button id="confirm-yes" class="danger">Move to trash</button>
     <button id="confirm-no" class="ghost">Cancel</button>
+  </div>
+</dialog>
+
+<dialog id="purge-dialog">
+  <h3>Delete permanently?</h3>
+  <p>This removes the files of batch <code id="purge-batch-id"></code> from Drive's trash
+    for good. <b>There is no undo.</b> Files you already restored by hand are left alone.</p>
+  <ul id="purge-list"></ul>
+  <p id="purge-count"></p>
+  <label for="purge-input">Type the batch id to confirm:</label>
+  <div class="row">
+    <input type="text" id="purge-input" autocomplete="off" spellcheck="false">
+    <button id="purge-yes" class="danger" disabled>Delete permanently</button>
+    <button id="purge-no" class="ghost">Cancel</button>
   </div>
 </dialog>
 

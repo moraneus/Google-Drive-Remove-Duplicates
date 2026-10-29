@@ -202,3 +202,42 @@ def test_403_without_rate_limit_reason_raises_immediately(error):
     with pytest.raises(HttpError):
         DriveClient(FakeService(fake_files), sleep=sleeps.append).set_trashed("f9", True)
     assert sleeps == []
+
+
+# ---- purge support: is_trashed / delete_file ----
+
+
+class FakeFilesPurge(FakeFiles):
+    def __init__(self, get_outcomes, delete_outcomes=None):
+        super().__init__([{}])
+        self.get_outcomes = get_outcomes
+        self.delete_outcomes = delete_outcomes or [{}]
+        self.get_calls = []
+        self.delete_calls = []
+
+    def get(self, fileId, fields):
+        self.get_calls.append((fileId, fields))
+        return FakeRequest(list(self.get_outcomes))
+
+    def delete(self, fileId):
+        self.delete_calls.append(fileId)
+        return FakeRequest(list(self.delete_outcomes))
+
+
+def test_is_trashed_reads_trashed_flag():
+    fake = FakeFilesPurge([{"trashed": True}])
+    assert DriveClient(FakeService(fake)).is_trashed("f1") is True
+    assert fake.get_calls == [("f1", "trashed")]
+
+
+def test_is_trashed_false_when_flag_missing():
+    fake = FakeFilesPurge([{}])
+    assert DriveClient(FakeService(fake)).is_trashed("f1") is False
+
+
+def test_delete_file_calls_delete_with_retry():
+    fake = FakeFilesPurge([{}], delete_outcomes=[http_error(503), ""])
+    sleeps = []
+    DriveClient(FakeService(fake), sleep=sleeps.append).delete_file("f1")
+    assert fake.delete_calls == ["f1"]
+    assert len(sleeps) == 1

@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import secrets
 import threading
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gdrive_dedupe.core import actions, auth, scanner, strategies
 from gdrive_dedupe.core.drive import DriveClient
@@ -26,10 +30,17 @@ class ConnectBody(BaseModel):
 
 class CleanBody(BaseModel):
     file_ids: list[str]
+    protected: list[str] = []
 
 
 class TrashBody(BaseModel):
     file_ids: list[str]
+    protected: list[str] = []
+
+
+class PurgeBody(BaseModel):
+    batch_id: str
+    confirm: str
 
 
 class CredentialsBody(BaseModel):
@@ -48,10 +59,18 @@ def _file_dict(f) -> dict:
     }
 
 
-def serialize_result(result: ScanResult, strategy: str) -> dict:
+def serialize_result(
+    result: ScanResult,
+    strategy: str,
+    prefer_folder: str | None = None,
+    protected: list[str] | None = None,
+) -> dict:
+    protected = protected or []
     groups = []
     for group in result.groups:
-        keeper = strategies.select_keeper(group, strategy)
+        to_trash = {
+            f.id for f in strategies.files_to_trash(group, strategy, prefer_folder, protected)
+        }
         groups.append(
             {
                 "md5": group.md5,
@@ -60,7 +79,12 @@ def serialize_result(result: ScanResult, strategy: str) -> dict:
                 "wasted_bytes": group.wasted_bytes,
                 "wasted_human": human_bytes(group.wasted_bytes),
                 "files": [
-                    {**_file_dict(f), "suggested_trash": f.id != keeper.id} for f in group.files
+                    {
+                        **_file_dict(f),
+                        "suggested_trash": f.id in to_trash,
+                        "protected": strategies.is_protected(f, protected),
+                    }
+                    for f in group.files
                 ],
             }
         )
@@ -74,6 +98,26 @@ def serialize_result(result: ScanResult, strategy: str) -> dict:
     }
 
 
+def _folder_path(result: ScanResult, folder_id: str, what: str = "folder") -> str:
+    folder = scanner.resolve_folder(result.folders, folder_id)
+    if folder is None:
+        raise HTTPException(status_code=400, detail=f"unknown {what} {folder_id!r}")
+    return scanner.folder_full_path(folder)
+
+
+def _folder_paths(result: ScanResult, folder_ids: list[str], what: str) -> list[str]:
+    return [_folder_path(result, i, what) for i in folder_ids]
+
+
+def _refuse_protected(result: ScanResult, items, protected_ids: list[str]) -> None:
+    protected = _folder_paths(result, protected_ids, "protected folder")
+    blocked = [i.name for i in items if strategies.is_protected(i, protected)]
+    if blocked:
+        raise HTTPException(
+            status_code=400, detail=f"refusing to trash files in protected folders: {blocked}"
+        )
+
+
 def _drive_client(write_access: bool) -> DriveClient:
     creds = auth.load_credentials(write_access=write_access)
     if creds is None:
@@ -84,9 +128,65 @@ def _drive_client(write_access: bool) -> DriveClient:
     return DriveClient(auth.build_service(creds))
 
 
-def create_app() -> FastAPI:
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+_TOKEN_ERROR = "missing or wrong access token — open the exact URL printed at startup"
+
+
+def _allowed_hosts(extra: list[str] | None = None) -> list[str]:
+    """Host names the browser may use to reach this server.
+
+    Loopback is always allowed. `GDRIVE_DEDUPE_ALLOWED_HOSTS` (comma separated)
+    and `extra` add more, e.g. a LAN address when running in a container.
+    """
+    env = os.environ.get("GDRIVE_DEDUPE_ALLOWED_HOSTS", "")
+    more = [h.strip() for h in env.split(",") if h.strip()] + list(extra or [])
+    return list(dict.fromkeys([*LOOPBACK_HOSTS, *more]))
+
+
+def create_app(allowed_hosts: list[str] | None = None, token: str | None = None) -> FastAPI:
+    """Build the app.
+
+    `token`, when given, must accompany every /api request as an
+    `X-Dedupe-Token` header. The CLI sets one whenever the server listens on
+    anything but loopback, so a container or LAN bind is not an open door to
+    your Drive.
+    """
     app = FastAPI(title="Google Drive Duplicate Finder")
     app.state.scan = ScanState()
+    hosts = _allowed_hosts(allowed_hosts)
+
+    if token:
+
+        @app.middleware("http")
+        async def require_token(request: Request, call_next):
+            if request.url.path.startswith("/api/"):
+                supplied = request.headers.get("x-dedupe-token", "")
+                if not secrets.compare_digest(supplied, token):
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": _TOKEN_ERROR},
+                    )
+            return await call_next(request)
+
+    # Defense against DNS rebinding: a page on attacker.example that resolves
+    # to 127.0.0.1 would arrive with its own Host header. Refuse it.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+
+    # Defense against cross-site requests: browsers attach an Origin header to
+    # every cross-origin request (and to all POSTs). It must match the origin
+    # this page was served from exactly — scheme, host and port — so neither a
+    # foreign site nor another local server on a different port can drive us.
+    @app.middleware("http")
+    async def refuse_foreign_origin(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin is not None:
+            parsed = urlsplit(origin)
+            own = (request.url.scheme, request.headers.get("host", "").lower())
+            if (parsed.scheme, parsed.netloc.lower()) != own:
+                return JSONResponse(
+                    status_code=403, content={"detail": "cross-origin request refused"}
+                )
+        return await call_next(request)
 
     @app.get("/")
     def index():
@@ -162,14 +262,45 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @app.get("/api/scan/result")
-    def scan_result(strategy: str = "newest"):
+    def _full_result() -> ScanResult:
         state: ScanState = app.state.scan
         if state.result is None:
             raise HTTPException(status_code=404, detail="no scan result yet")
+        return state.result
+
+    def _scoped(folder: str | None) -> tuple[ScanResult, dict | None]:
+        """The current scan, optionally narrowed to one folder subtree."""
+        result = _full_result()
+        if not folder:
+            return result, None
+        path = _folder_path(result, folder)
+        return scanner.scope_result(result, path), {"id": folder, "path": path}
+
+    @app.get("/api/folders")
+    def folders():
+        result = _full_result()
+        items = sorted(
+            ({"id": f.id, "path": scanner.folder_full_path(f)} for f in result.folders),
+            key=lambda x: x["path"].lower(),
+        )
+        return {"folders": items}
+
+    @app.get("/api/scan/result")
+    def scan_result(
+        strategy: str = "newest",
+        folder: str | None = None,
+        prefer: str | None = None,
+        protected: list[str] = Query(default=[]),
+    ):
         if strategy not in strategies.STRATEGIES:
             raise HTTPException(status_code=400, detail=f"unknown strategy {strategy!r}")
-        return serialize_result(state.result, strategy)
+        full = _full_result()
+        result, scope = _scoped(folder)
+        prefer_path = _folder_path(full, prefer, "prefer folder") if prefer else None
+        protected_paths = _folder_paths(full, protected, "protected folder")
+        body = serialize_result(result, strategy, prefer_path, protected_paths)
+        body["scope"] = scope
+        return body
 
     @app.post("/api/clean")
     def clean(body: CleanBody):
@@ -190,29 +321,11 @@ def create_app() -> FastAPI:
                     detail=f"refusing to trash every copy in group {group.md5}",
                 )
         files = [known[i] for i in body.file_ids]
+        _refuse_protected(state.result, files, body.protected)
         batch_id = actions.trash_files(client, files)
         return {"batch_id": batch_id, "trashed": len(files)}
 
-    @app.get("/api/empty-folders")
-    def empty_folders():
-        state: ScanState = app.state.scan
-        if state.result is None:
-            raise HTTPException(status_code=404, detail="no scan result yet")
-        found = scanner.find_empty_folders(state.result.files, state.result.folders)
-        return {"folders": [_file_dict(f) for f in found], "count": len(found)}
-
-    @app.get("/api/old-files")
-    def old_files(before: str):
-        state: ScanState = app.state.scan
-        if state.result is None:
-            raise HTTPException(status_code=404, detail="no scan result yet")
-        try:
-            datetime.fromisoformat(before)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400, detail="before must be a date like 2020-01-01"
-            ) from exc
-        found = scanner.find_old_files(state.result.files, before)
+    def _file_list(found) -> dict:
         total = sum(f.size for f in found)
         return {
             "files": [_file_dict(f) for f in found],
@@ -220,6 +333,28 @@ def create_app() -> FastAPI:
             "total_bytes": total,
             "total_human": human_bytes(total),
         }
+
+    @app.get("/api/empty-folders")
+    def empty_folders(folder: str | None = None):
+        result, _ = _scoped(folder)
+        found = scanner.find_empty_folders(result.files, result.folders)
+        return {"folders": [_file_dict(f) for f in found], "count": len(found)}
+
+    @app.get("/api/old-files")
+    def old_files(before: str, folder: str | None = None):
+        result, _ = _scoped(folder)
+        try:
+            datetime.fromisoformat(before)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="before must be a date like 2020-01-01"
+            ) from exc
+        return _file_list(scanner.find_old_files(result.files, before))
+
+    @app.get("/api/largest-files")
+    def largest_files(limit: int = Query(default=50, ge=1, le=1000), folder: str | None = None):
+        result, _ = _scoped(folder)
+        return _file_list(scanner.find_largest_files(result.files, limit))
 
     @app.post("/api/trash")
     def trash(body: TrashBody):
@@ -235,6 +370,7 @@ def create_app() -> FastAPI:
         if unknown:
             raise HTTPException(status_code=400, detail=f"unknown ids: {sorted(unknown)}")
         items = [known[i] for i in body.file_ids]
+        _refuse_protected(state.result, items, body.protected)
         batch_id = actions.trash_files(client, items)
         return {"batch_id": batch_id, "trashed": len(items)}
 
@@ -246,6 +382,30 @@ def create_app() -> FastAPI:
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"restored": len(restored)}
+
+    @app.get("/api/batches")
+    def batches():
+        return {"batches": actions.list_batches()}
+
+    @app.post("/api/purge")
+    def purge(body: PurgeBody):
+        """Permanently delete one batch this tool trashed. Irreversible."""
+        client = _drive_client(write_access=True)
+        if body.confirm != body.batch_id:
+            raise HTTPException(
+                status_code=400, detail="type the batch id to confirm permanent deletion"
+            )
+        try:
+            outcome = actions.purge_batch(client, body.batch_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "batch_id": outcome["batch_id"],
+            "deleted": len(outcome["deleted"]),
+            "skipped": len(outcome["skipped"]),
+        }
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app

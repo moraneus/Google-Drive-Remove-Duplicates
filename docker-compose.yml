@@ -1,0 +1,19 @@
+# docker compose up --build
+# Open the URL printed in the logs; it carries the access token.
+services:
+  dedupe:
+    build: .
+    image: gdrive-dedupe
+    ports:
+      - "127.0.0.1:8765:8765"   # web UI
+      - "127.0.0.1:8766:8766"   # Google OAuth redirect
+    volumes:
+      - gdrive-dedupe-data:/data   # credentials.json, token.json, audit.jsonl
+    environment:
+      # Optional: pin the access token so the URL stays the same across restarts.
+      # GDRIVE_DEDUPE_TOKEN: change-me-to-something-random
+      GDRIVE_DEDUPE_TOKEN: ${GDRIVE_DEDUPE_TOKEN:-}
+    restart: unless-stopped
+
+volumes:
+  gdrive-dedupe-data:

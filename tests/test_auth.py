@@ -65,6 +65,7 @@ def test_auth_status_disconnected(home):
         "write_access": False,
         "has_client_secrets": False,
         "client_secrets_path": None,
+        "auth_url": None,
     }
 
 
@@ -108,4 +109,129 @@ def test_run_oauth_flow_without_secrets_raises(home):
 def test_disconnect_removes_token(home):
     auth.save_token(FakeCreds([auth.SCOPE_READONLY]))
     auth.disconnect()
+    assert not auth.token_path().exists()
+
+
+# ---- local-server OAuth flow (container friendly) ----
+
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+import urllib.request  # noqa: E402
+
+
+class FakeFlow:
+    instances = []
+
+    def __init__(self):
+        self.redirect_uri = None
+        self.fetched = None
+        self.credentials = FakeCreds([auth.SCOPE_READONLY])
+        FakeFlow.instances.append(self)
+
+    def authorization_url(self):
+        return "https://accounts.google.com/o/oauth2/auth?client_id=abc", "state1"
+
+    def fetch_token(self, authorization_response):
+        self.fetched = authorization_response
+
+
+@pytest.fixture()
+def fake_flow(home, monkeypatch):
+    FakeFlow.instances.clear()
+    (home / "credentials.json").write_text(VALID_CLIENT)
+    monkeypatch.setattr(
+        auth.InstalledAppFlow,
+        "from_client_secrets_file",
+        staticmethod(lambda path, scopes: FakeFlow()),
+    )
+    monkeypatch.setattr(
+        auth.Credentials,
+        "from_authorized_user_file",
+        staticmethod(lambda path: FakeCreds([auth.SCOPE_READONLY])),
+    )
+    return FakeFlow
+
+
+def _wait_for_auth_url(timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        url = auth.auth_status()["auth_url"]
+        if url:
+            return url
+        time.sleep(0.02)
+    raise AssertionError("auth_url never appeared")
+
+
+def _free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_auth_status_has_no_auth_url_when_idle(home):
+    assert auth.auth_status()["auth_url"] is None
+
+
+def test_oauth_flow_exposes_url_then_exchanges_code(fake_flow, monkeypatch):
+    monkeypatch.setenv("GDRIVE_DEDUPE_NO_BROWSER", "1")
+    opened = []
+    monkeypatch.setattr(auth.webbrowser, "open", lambda *a, **k: opened.append(a))
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(creds=auth.run_oauth_flow()))
+    worker.start()
+    auth_url = _wait_for_auth_url()
+    assert auth_url.startswith("https://accounts.google.com/")
+    flow = fake_flow.instances[0]
+    assert flow.redirect_uri.startswith("http://localhost:")
+    urllib.request.urlopen(flow.redirect_uri + "?state=state1&code=abc", timeout=5).read()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert flow.fetched.startswith("https://localhost:")
+    assert "code=abc" in flow.fetched
+    assert result["creds"] is flow.credentials
+    assert auth.token_path().exists()
+    assert auth.auth_status()["auth_url"] is None
+    assert opened == []
+
+
+def test_oauth_flow_opens_browser_by_default_and_honors_fixed_port(fake_flow, monkeypatch):
+    port = _free_port()
+    monkeypatch.setenv("GDRIVE_DEDUPE_OAUTH_PORT", str(port))
+    monkeypatch.delenv("GDRIVE_DEDUPE_NO_BROWSER", raising=False)
+    opened = []
+    monkeypatch.setattr(auth.webbrowser, "open", lambda url, **k: opened.append(url))
+    worker = threading.Thread(target=auth.run_oauth_flow)
+    worker.start()
+    auth_url = _wait_for_auth_url()
+    flow = fake_flow.instances[0]
+    assert flow.redirect_uri == f"http://localhost:{port}/"
+    urllib.request.urlopen(flow.redirect_uri + "?state=state1&code=abc", timeout=5).read()
+    worker.join(timeout=5)
+    assert opened == [auth_url]
+
+
+def test_oauth_flow_clears_url_when_exchange_fails(fake_flow, monkeypatch):
+    monkeypatch.setenv("GDRIVE_DEDUPE_NO_BROWSER", "1")
+
+    def boom(authorization_response):
+        raise RuntimeError("exchange failed")
+
+    errors = []
+
+    def run():
+        try:
+            auth.run_oauth_flow()
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    _wait_for_auth_url()
+    flow = fake_flow.instances[0]
+    flow.fetch_token = boom
+    urllib.request.urlopen(flow.redirect_uri + "?error=access_denied", timeout=5).read()
+    worker.join(timeout=5)
+    assert errors == ["exchange failed"]
+    assert auth.auth_status()["auth_url"] is None
     assert not auth.token_path().exists()
