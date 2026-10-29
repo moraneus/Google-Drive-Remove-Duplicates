@@ -24,6 +24,10 @@ TOKEN=$(docker logs "$NAME" 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cu
 [ "$(code -H "Host: evil.example.com" -H "X-Dedupe-Token: $TOKEN" "http://127.0.0.1:${PORT}/api/auth/status")" = 400 ] || { echo "foreign Host accepted"; exit 1; }
 docker exec "$NAME" python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/').status==200 else 1)"
 [ "$(docker exec "$NAME" id -u)" = 1000 ] || { echo "container runs as root"; exit 1; }
-docker run --rm "$IMAGE" --help | grep -q purge
-docker run --rm "$IMAGE" --help | grep -q largest-files
+# Capture first, then grep: `grep -q` closing the pipe early would make `docker run`
+# fail with "broken pipe" under pipefail.
+HELP=$(docker run --rm "$IMAGE" --help)
+for cmd in purge largest-files clean; do
+  grep -q "$cmd" <<<"$HELP" || { echo "CLI inside the image lacks '$cmd'"; exit 1; }
+done
 echo "docker smoke test passed ($IMAGE)"
