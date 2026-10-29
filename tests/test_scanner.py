@@ -2,9 +2,13 @@ from gdrive_dedupe.core.drive import FOLDER_MIME
 from gdrive_dedupe.core.models import DriveFile
 from gdrive_dedupe.core.scanner import (
     find_empty_folders,
+    find_largest_files,
     find_old_files,
+    folder_full_path,
     group_duplicates,
+    resolve_folder,
     scan,
+    scope_result,
 )
 
 
@@ -84,3 +88,82 @@ def test_old_files_cutoff_and_ordering():
 def test_old_files_excludes_unparseable_dates():
     files = [f("mystery", "a", modified=""), f("dated", "b", modified="2019-01-01T00:00:00Z")]
     assert [x.id for x in find_old_files(files, "2021-01-01")] == ["dated"]
+
+
+# ---- folder scoping ----
+
+
+def pf(id, md5, path, size=1):
+    return DriveFile(id=id, name=id, size=size, md5=md5, modified_time="", path=path)
+
+
+def pfolder(id, path, name=None):
+    return DriveFile(
+        id=id, name=name or id, size=0, md5=None, modified_time="", mime_type=FOLDER_MIME, path=path
+    )
+
+
+SCOPED_FILES = [
+    pf("in1", "x", "/Photos"),
+    pf("in2", "x", "/Photos/2023"),
+    pf("out", "x", "/Downloads"),
+    pf("lonely-in", "y", "/Photos"),
+    pf("pair-out-a", "z", "/Downloads"),
+    pf("pair-out-b", "z", "/Desktop"),
+]
+SCOPED_FOLDERS = [
+    pfolder("photos", "/", name="Photos"),
+    pfolder("y2023", "/Photos", name="2023"),
+    pfolder("downloads", "/", name="Downloads"),
+]
+
+
+def test_folder_full_path_joins_parent_path_and_name():
+    assert folder_full_path(pfolder("photos", "/", name="Photos")) == "/Photos"
+    assert folder_full_path(pfolder("y2023", "/Photos", name="2023")) == "/Photos/2023"
+
+
+def test_scope_result_keeps_only_subtree_and_regroups():
+    full = group_duplicates(SCOPED_FILES)
+    full.files = SCOPED_FILES
+    full.folders = SCOPED_FOLDERS
+    scoped = scope_result(full, "/Photos")
+    assert [x.id for x in scoped.files] == ["in1", "in2", "lonely-in"]
+    assert [x.id for x in scoped.folders] == ["y2023"]
+    assert scoped.total_files == 3
+    assert [g.md5 for g in scoped.groups] == ["x"]
+    assert {x.id for x in scoped.groups[0].files} == {"in1", "in2"}
+
+
+def test_scope_result_root_is_identity():
+    full = group_duplicates(SCOPED_FILES)
+    full.files = SCOPED_FILES
+    full.folders = SCOPED_FOLDERS
+    scoped = scope_result(full, "/")
+    assert len(scoped.files) == len(SCOPED_FILES)
+    assert len(scoped.groups) == 2
+
+
+def test_resolve_folder_by_path_or_id():
+    assert resolve_folder(SCOPED_FOLDERS, "/Photos/2023").id == "y2023"
+    assert resolve_folder(SCOPED_FOLDERS, "Photos/2023/").id == "y2023"
+    assert resolve_folder(SCOPED_FOLDERS, "y2023").id == "y2023"
+    assert resolve_folder(SCOPED_FOLDERS, "/Nope") is None
+
+
+# ---- largest files ----
+
+
+def test_largest_files_sorted_desc_and_limited():
+    files = [
+        pf("small", "a", "/", size=1),
+        pf("huge", "b", "/", size=1000),
+        pf("big", "c", "/", size=500),
+        pf("mid", "d", "/", size=100),
+    ]
+    assert [x.id for x in find_largest_files(files, limit=3)] == ["huge", "big", "mid"]
+
+
+def test_largest_files_excludes_zero_size():
+    files = [pf("doc", None, "/", size=0), pf("bin", "a", "/", size=5)]
+    assert [x.id for x in find_largest_files(files, limit=10)] == ["bin"]

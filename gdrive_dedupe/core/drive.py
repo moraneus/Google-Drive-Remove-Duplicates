@@ -129,3 +129,11 @@ class DriveClient:
 
     def set_trashed(self, file_id: str, trashed: bool) -> None:
         self._execute(self.service.files().update(fileId=file_id, body={"trashed": trashed}))
+
+    def is_trashed(self, file_id: str) -> bool:
+        meta = self._execute(self.service.files().get(fileId=file_id, fields="trashed"))
+        return bool(meta.get("trashed"))
+
+    def delete_file(self, file_id: str) -> None:
+        """Permanently delete a file. Only ever called by `actions.purge_batch`."""
+        self._execute(self.service.files().delete(fileId=file_id))

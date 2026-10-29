@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 
 from .models import DriveFile, DuplicateGroup, ScanResult
+from .strategies import is_under
 
 
 def group_duplicates(files: Iterable[DriveFile]) -> ScanResult:
@@ -77,3 +78,40 @@ def find_old_files(files: list[DriveFile], before: str) -> list[DriveFile]:
         cutoff = cutoff.replace(tzinfo=UTC)
     dated = [(parsed, f) for f in files if (parsed := _parse_rfc3339(f.modified_time)) is not None]
     return [f for parsed, f in sorted(dated, key=lambda p: p[0]) if parsed < cutoff]
+
+
+def find_largest_files(files: list[DriveFile], limit: int = 50) -> list[DriveFile]:
+    """The `limit` biggest files, largest first. Zero-size files are omitted."""
+    sized = [f for f in files if f.size > 0]
+    return sorted(sized, key=lambda f: f.size, reverse=True)[:limit]
+
+
+def folder_full_path(folder: DriveFile) -> str:
+    """A folder's own path ("/A/B"); `folder.path` is only its parent's path."""
+    return folder.path.rstrip("/") + "/" + folder.name
+
+
+def resolve_folder(folders: list[DriveFile], ref: str) -> DriveFile | None:
+    """Find a folder by full path ("/Photos/2023", leading slash optional) or by id."""
+    wanted = "/" + ref.strip("/")
+    for folder in folders:
+        if folder_full_path(folder) == wanted:
+            return folder
+    for folder in folders:
+        if folder.id == ref:
+            return folder
+    return None
+
+
+def scope_result(result: ScanResult, folder_path: str) -> ScanResult:
+    """Restrict a scan to one folder subtree and regroup duplicates within it.
+
+    Only groups with two or more copies *inside* the subtree are reported;
+    copies elsewhere in Drive are not considered.
+    """
+    files = [f for f in result.files if is_under(f, folder_path)]
+    folders = [f for f in result.folders if is_under(f, folder_path)]
+    scoped = group_duplicates(files)
+    scoped.files = files
+    scoped.folders = folders
+    return scoped
