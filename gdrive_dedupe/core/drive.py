@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import http.client
 import random
-import socket
 import ssl
 import time
 from collections.abc import Callable
 
+import httplib2
 from googleapiclient.errors import HttpError
 
 from .models import DriveFile
@@ -17,14 +17,14 @@ RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
 OWNED_QUERY = "trashed = false and 'me' in owners"
 
 # Transient network failures that aren't HttpErrors but are safe to retry:
-# read/connect timeouts, dropped connections, and partial TLS/HTTP reads.
-# TimeoutError covers socket.timeout on Python 3.10+; it's listed explicitly
-# for clarity. ConnectionError covers ConnectionReset/Aborted/Refused.
+# read/connect timeouts, dropped connections, partial TLS/HTTP reads, and DNS
+# blips. ConnectionError covers ConnectionReset/Aborted/Refused. httplib2 (the
+# transport under the Drive client) turns socket.gaierror into
+# ServerNotFoundError, so that is what a DNS failure looks like at this layer.
 RETRYABLE_NETWORK_ERRORS = (
     TimeoutError,
     ConnectionError,
-    socket.timeout,
-    socket.gaierror,
+    httplib2.ServerNotFoundError,
     ssl.SSLError,
     http.client.HTTPException,
 )

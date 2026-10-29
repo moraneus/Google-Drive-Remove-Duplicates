@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- Transient network failures (timeouts, dropped connections, partial TLS/HTTP
+  reads, DNS blips) during a scan or trash operation are now retried with the
+  same backoff as retryable HTTP status codes instead of aborting immediately.
+  (#1, with a follow-up so DNS failures as httplib2 raises them are covered.)
+
 ## [2.2.0] — 2026-07-23
 
 ### Added

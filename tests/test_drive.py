@@ -1,3 +1,4 @@
+import httplib2
 import pytest
 from googleapiclient.errors import HttpError
 
@@ -155,4 +156,16 @@ def test_connection_error_retries_then_succeeds():
 def test_set_trashed_calls_update():
     fake_files = FakeFiles([{}])
     DriveClient(FakeService(fake_files)).set_trashed("f9", True)
+    assert fake_files.update_calls == [("f9", {"trashed": True})]
+
+
+def test_dns_failure_retries_then_succeeds():
+    # httplib2 converts socket.gaierror into ServerNotFoundError before it
+    # reaches DriveClient, so that is the exception a DNS blip surfaces as.
+    fake_files = FakeFiles(
+        [{}], update_outcomes=[httplib2.ServerNotFoundError("Unable to find the server"), {}]
+    )
+    sleeps = []
+    DriveClient(FakeService(fake_files), sleep=sleeps.append).set_trashed("f9", True)
+    assert len(sleeps) == 1
     assert fake_files.update_calls == [("f9", {"trashed": True})]
