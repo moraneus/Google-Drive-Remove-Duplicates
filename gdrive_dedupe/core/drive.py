@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import json
 import random
 import ssl
 import time
@@ -13,7 +14,10 @@ from .models import DriveFile
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 FILE_FIELDS = "id, name, size, md5Checksum, modifiedTime, mimeType, webViewLink, parents"
-RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+# A 403 is only transient when Drive is rate-limiting us; other 403s
+# (insufficientFilePermissions, appNotAuthorizedToFile, ...) never clear on retry.
+RETRYABLE_403_REASONS = {"userRateLimitExceeded", "rateLimitExceeded", "sharingRateLimitExceeded"}
 OWNED_QUERY = "trashed = false and 'me' in owners"
 
 # Transient network failures that aren't HttpErrors but are safe to retry:
@@ -28,6 +32,20 @@ RETRYABLE_NETWORK_ERRORS = (
     ssl.SSLError,
     http.client.HTTPException,
 )
+
+
+def _is_retryable(err: HttpError) -> bool:
+    status = err.resp.status
+    if status in RETRY_STATUSES:
+        return True
+    if status != 403:
+        return False
+    try:
+        errors = json.loads(err.content.decode("utf-8"))["error"]["errors"]
+        reasons = {e.get("reason") for e in errors}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+    return bool(reasons & RETRYABLE_403_REASONS)
 
 
 class DriveClient:
@@ -46,7 +64,7 @@ class DriveClient:
             try:
                 return request.execute()
             except HttpError as err:
-                if err.resp.status not in RETRY_STATUSES or attempt == self.max_retries - 1:
+                if not _is_retryable(err) or attempt == self.max_retries - 1:
                     raise
                 self._backoff(attempt)
             except RETRYABLE_NETWORK_ERRORS:

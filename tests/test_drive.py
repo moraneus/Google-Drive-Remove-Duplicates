@@ -1,3 +1,5 @@
+import json
+
 import httplib2
 import pytest
 from googleapiclient.errors import HttpError
@@ -11,8 +13,13 @@ class FakeResp:
         self.reason = "err"
 
 
-def http_error(status):
-    return HttpError(resp=FakeResp(status), content=b"err")
+def http_error(status, content=b"err"):
+    return HttpError(resp=FakeResp(status), content=content)
+
+
+def drive_403(reason):
+    body = {"error": {"code": 403, "message": "m", "errors": [{"reason": reason, "message": "m"}]}}
+    return http_error(403, json.dumps(body).encode())
 
 
 class FakeRequest:
@@ -169,3 +176,29 @@ def test_dns_failure_retries_then_succeeds():
     DriveClient(FakeService(fake_files), sleep=sleeps.append).set_trashed("f9", True)
     assert len(sleeps) == 1
     assert fake_files.update_calls == [("f9", {"trashed": True})]
+
+
+@pytest.mark.parametrize("reason", ["userRateLimitExceeded", "rateLimitExceeded"])
+def test_403_rate_limit_is_retried(reason):
+    fake_files = FakeFiles([{}])
+    fake_files.list = lambda **kw: FakeRequest([drive_403(reason), {"files": []}])
+    sleeps = []
+    assert DriveClient(FakeService(fake_files), sleep=sleeps.append).list_owned_files() == []
+    assert len(sleeps) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        drive_403("insufficientFilePermissions"),
+        drive_403("appNotAuthorizedToFile"),
+        http_error(403, b"not json"),
+        http_error(403, b'{"error": {"code": 403, "message": "no reason"}}'),
+    ],
+)
+def test_403_without_rate_limit_reason_raises_immediately(error):
+    fake_files = FakeFiles([{}], update_outcomes=[error, {}])
+    sleeps = []
+    with pytest.raises(HttpError):
+        DriveClient(FakeService(fake_files), sleep=sleeps.append).set_trashed("f9", True)
+    assert sleeps == []

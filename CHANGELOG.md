@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format is based on
   reads, DNS blips) during a scan or trash operation are now retried with the
   same backoff as retryable HTTP status codes instead of aborting immediately.
   (#1, with a follow-up so DNS failures as httplib2 raises them are covered.)
+- HTTP 403 is only retried when Drive reports a rate-limit reason
+  (`userRateLimitExceeded`, `rateLimitExceeded`, `sharingRateLimitExceeded`).
+  Permission-denied 403s now fail immediately instead of sleeping through the
+  full backoff schedule first.
 
 ## [2.2.0] — 2026-07-23
 
