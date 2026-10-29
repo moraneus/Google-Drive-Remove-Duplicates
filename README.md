@@ -182,6 +182,7 @@ uv run gdrive-dedupe clean --prefer /Photos --apply       # keep the copy in /Ph
 uv run gdrive-dedupe clean --protect /Archive --protect /Work --apply   # never trash inside these
 uv run gdrive-dedupe undo                  # restore the last trashed batch
 uv run gdrive-dedupe web --port 9000       # web UI on another port
+uv run gdrive-dedupe web --no-browser      # don't open a browser tab (print the URL only)
 
 uv run gdrive-dedupe empty-folders                     # list folders with no files inside
 uv run gdrive-dedupe empty-folders --apply             # ...and move them to trash
