@@ -110,7 +110,7 @@ code { font-family: var(--mono); font-size: 0.9em; overflow-wrap: anywhere; }
 .content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; min-width: 0; }
 .stage {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
-  padding: 1.35rem 1.5rem; scroll-margin-top: 1rem; min-width: 0;
+  padding: 1.35rem 1.5rem; scroll-margin-top: 4.25rem; min-width: 0;
 }
 .stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
 .stage-head p { color: var(--ink-2); margin: 0.2rem 0 0; max-width: 62ch; }
