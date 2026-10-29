@@ -33,7 +33,8 @@ explicit Google consent screen the first time you trash files, and never before.
   `sessionStorage` for that tab only. Requests without it get 401.
 - The Docker image runs as an unprivileged user and publishes its ports on
   `127.0.0.1` only in the provided compose file.
-- The only outbound traffic is to Google's OAuth and Drive API endpoints.
+- The only outbound traffic is to Google's OAuth and Drive API endpoints. The web page
+  itself loads nothing from third parties: no web fonts, CDN scripts or stylesheets.
 - No telemetry, analytics, or third-party services.
 
 ## Mutation safety

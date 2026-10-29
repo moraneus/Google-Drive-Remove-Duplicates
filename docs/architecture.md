@@ -15,7 +15,7 @@ gdrive_dedupe/
 ├── web/
 │   ├── state.py           # ScanState: thread-safe background-job state
 │   ├── app.py             # FastAPI factory, REST + SSE endpoints, host/origin/token guards
-│   └── static/            # index.html, app.js, style.css (no build step)
+│   └── static/            # index.html, app.js, style.css (no build step, no CDN assets)
 └── cli.py                 # Typer commands: scan, clean, empty-folders, old-files,
                            #   largest-files, purge, undo, web
 ```
@@ -115,8 +115,9 @@ polled by the browser over Server-Sent Events (`/api/scan/events`).
 - The Docker image is built in CI and probed over HTTP by `scripts/docker-smoke.sh`
   (token gating, trusted hosts, health probe, non-root user, CLI inside the image).
 - The browser UI has no unit tests; it is exercised end to end with Playwright against
-  the real server backed by a fake Drive before releases (the demo screenshots in
-  `docs/img` come from that run). The two Drive calls used only by purge
+  the real server backed by a fake Drive before releases: every step and tool, both
+  dialogs, the first-run setup state, dark mode, a 375px viewport with no horizontal
+  overflow, and keyboard focus. The demo screenshots in `docs/img` come from that run. The two Drive calls used only by purge
   (`files.get` with `fields=trashed`, `files.delete`) are stubbed in tests and should be
   tried once against a throwaway file on a real account before a release that adds
   them.
