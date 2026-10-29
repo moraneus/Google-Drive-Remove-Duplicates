@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -128,6 +129,7 @@ def _drive_client(write_access: bool) -> DriveClient:
 
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+_TOKEN_ERROR = "missing or wrong access token — open the exact URL printed at startup"
 
 
 def _allowed_hosts(extra: list[str] | None = None) -> list[str]:
@@ -141,23 +143,49 @@ def _allowed_hosts(extra: list[str] | None = None) -> list[str]:
     return list(dict.fromkeys([*LOOPBACK_HOSTS, *more]))
 
 
-def create_app(allowed_hosts: list[str] | None = None) -> FastAPI:
+def create_app(allowed_hosts: list[str] | None = None, token: str | None = None) -> FastAPI:
+    """Build the app.
+
+    `token`, when given, must accompany every /api request as an
+    `X-Dedupe-Token` header. The CLI sets one whenever the server listens on
+    anything but loopback, so a container or LAN bind is not an open door to
+    your Drive.
+    """
     app = FastAPI(title="Google Drive Duplicate Finder")
     app.state.scan = ScanState()
     hosts = _allowed_hosts(allowed_hosts)
+
+    if token:
+
+        @app.middleware("http")
+        async def require_token(request: Request, call_next):
+            if request.url.path.startswith("/api/"):
+                supplied = request.headers.get("x-dedupe-token", "")
+                if not secrets.compare_digest(supplied, token):
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": _TOKEN_ERROR},
+                    )
+            return await call_next(request)
 
     # Defense against DNS rebinding: a page on attacker.example that resolves
     # to 127.0.0.1 would arrive with its own Host header. Refuse it.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     # Defense against cross-site requests: browsers attach an Origin header to
-    # every cross-origin request (and to all POSTs). Only our own origin may
-    # drive this API.
+    # every cross-origin request (and to all POSTs). It must match the origin
+    # this page was served from exactly — scheme, host and port — so neither a
+    # foreign site nor another local server on a different port can drive us.
     @app.middleware("http")
     async def refuse_foreign_origin(request: Request, call_next):
         origin = request.headers.get("origin")
-        if origin is not None and urlsplit(origin).hostname not in hosts:
-            return JSONResponse(status_code=403, content={"detail": "cross-origin request refused"})
+        if origin is not None:
+            parsed = urlsplit(origin)
+            own = (request.url.scheme, request.headers.get("host", "").lower())
+            if (parsed.scheme, parsed.netloc.lower()) != own:
+                return JSONResponse(
+                    status_code=403, content={"detail": "cross-origin request refused"}
+                )
         return await call_next(request)
 
     @app.get("/")

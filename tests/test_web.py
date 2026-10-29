@@ -396,8 +396,26 @@ def test_post_with_foreign_origin_is_refused(client, monkeypatch):
 def test_post_with_own_origin_is_allowed(client, monkeypatch):
     connected(monkeypatch, write_access=True)
     monkeypatch.setattr(webapp.actions, "undo_last", lambda c: [{"id": "a", "name": "a"}])
-    resp = client.post("/api/undo", headers={"Origin": "http://127.0.0.1:8765"})
-    assert resp.status_code == 200
+    headers = {"Origin": "http://127.0.0.1:8765", "Host": "127.0.0.1:8765"}
+    assert client.post("/api/undo", headers=headers).status_code == 200
+
+
+def test_post_from_other_local_port_is_refused(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(webapp.actions, "undo_last", lambda c: [{"id": "a", "name": "a"}])
+    headers = {"Origin": "http://127.0.0.1:9999", "Host": "127.0.0.1:8765"}
+    assert client.post("/api/undo", headers=headers).status_code == 403
+
+
+def test_post_with_wrong_scheme_origin_is_refused(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(webapp.actions, "undo_last", lambda c: [{"id": "a", "name": "a"}])
+    headers = {"Origin": "https://127.0.0.1:8765", "Host": "127.0.0.1:8765"}
+    assert client.post("/api/undo", headers=headers).status_code == 403
+
+
+def test_null_origin_is_refused(client):
+    assert client.get("/api/batches", headers={"Origin": "null"}).status_code == 403
 
 
 def test_get_with_foreign_origin_is_still_refused(client):
@@ -410,3 +428,37 @@ def test_create_app_accepts_extra_allowed_hosts(monkeypatch, tmp_path):
     tc = TestClient(webapp.create_app(allowed_hosts=["192.168.1.20"]), base_url="http://127.0.0.1")
     assert tc.get("/api/auth/status", headers={"Host": "192.168.1.20:8765"}).status_code == 200
     assert tc.get("/api/auth/status", headers={"Host": "192.168.1.21:8765"}).status_code == 400
+
+
+# ---- access token (required when not bound to loopback) ----
+
+
+@pytest.fixture()
+def token_client(monkeypatch, tmp_path):
+    monkeypatch.setenv("GDRIVE_DEDUPE_HOME", str(tmp_path))
+    application = webapp.create_app(token="s3cret")
+    application.state.scan.finish(RESULT)
+    return TestClient(application, base_url="http://127.0.0.1")
+
+
+def test_token_required_for_api(token_client):
+    assert token_client.get("/api/auth/status").status_code == 401
+
+
+def test_token_accepted_in_header(token_client):
+    resp = token_client.get("/api/auth/status", headers={"X-Dedupe-Token": "s3cret"})
+    assert resp.status_code == 200
+
+
+def test_token_rejected_when_wrong(token_client):
+    resp = token_client.get("/api/auth/status", headers={"X-Dedupe-Token": "nope"})
+    assert resp.status_code == 401
+
+
+def test_token_not_needed_for_page_and_static(token_client):
+    assert token_client.get("/").status_code == 200
+    assert token_client.get("/static/app.js").status_code == 200
+
+
+def test_no_token_configured_means_open_loopback_api(client):
+    assert client.get("/api/auth/status").status_code == 200

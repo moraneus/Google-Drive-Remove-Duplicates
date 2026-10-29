@@ -381,9 +381,62 @@ def test_web_host_defaults_to_loopback(monkeypatch):
 def test_web_concrete_host_is_added_to_allowed_hosts(monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: seen.update(app=app, **kw))
+    monkeypatch.setenv("GDRIVE_DEDUPE_TOKEN", "t0k")
     result = runner.invoke(cli.app, ["web", "--host", "192.168.1.20", "--no-browser"])
     assert result.exit_code == 0, result.output
     from fastapi.testclient import TestClient
 
     tc = TestClient(seen["app"], base_url="http://127.0.0.1")
-    assert tc.get("/api/auth/status", headers={"Host": "192.168.1.20:8765"}).status_code == 200
+    headers = {"Host": "192.168.1.20:8765", "X-Dedupe-Token": "t0k"}
+    assert tc.get("/api/auth/status", headers=headers).status_code == 200
+    headers["Host"] = "192.168.1.21:8765"
+    assert tc.get("/api/auth/status", headers=headers).status_code == 400
+
+
+# ---- access token when binding beyond loopback ----
+
+
+def _serve(monkeypatch, args, env=None):
+    seen = {}
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: seen.update(app=app, **kw))
+    for key in ("GDRIVE_DEDUPE_TOKEN", "GDRIVE_DEDUPE_HOST"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in (env or {}).items():
+        monkeypatch.setenv(key, value)
+    result = runner.invoke(cli.app, ["web", "--no-browser", *args])
+    assert result.exit_code == 0, result.output
+    from fastapi.testclient import TestClient
+
+    return result.output, TestClient(seen["app"], base_url="http://127.0.0.1")
+
+
+def test_web_loopback_needs_no_token(monkeypatch):
+    output, tc = _serve(monkeypatch, [])
+    assert "token" not in output.lower()
+    assert tc.get("/api/auth/status").status_code == 200
+
+
+def test_web_wildcard_bind_generates_token_and_prints_url(monkeypatch):
+    output, tc = _serve(monkeypatch, ["--host", "0.0.0.0"])
+    import re
+
+    match = re.search(r"http://127\.0\.0\.1:8765/\?token=([A-Za-z0-9_-]{20,})", output)
+    assert match, output
+    token = match.group(1)
+    assert tc.get("/api/auth/status").status_code == 401
+    assert tc.get("/api/auth/status", headers={"X-Dedupe-Token": token}).status_code == 200
+
+
+def test_web_token_env_is_honored(monkeypatch):
+    output, tc = _serve(
+        monkeypatch, ["--host", "0.0.0.0"], env={"GDRIVE_DEDUPE_TOKEN": "fixed-token-123"}
+    )
+    assert "token=fixed-token-123" in output
+    assert (
+        tc.get("/api/auth/status", headers={"X-Dedupe-Token": "fixed-token-123"}).status_code == 200
+    )
+
+
+def test_web_token_env_applies_even_on_loopback(monkeypatch):
+    _, tc = _serve(monkeypatch, [], env={"GDRIVE_DEDUPE_TOKEN": "fixed-token-123"})
+    assert tc.get("/api/auth/status").status_code == 401

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import webbrowser
 from datetime import datetime
@@ -297,11 +298,20 @@ def web(
     from gdrive_dedupe.web.app import create_app
 
     wildcard = host in ("0.0.0.0", "::")
-    url = f"http://{'127.0.0.1' if wildcard else host}:{port}"
+    loopback = host in ("127.0.0.1", "localhost", "::1")
+    url = f"http://{'127.0.0.1' if wildcard else host}:{port}/"
+    # Beyond loopback, anyone who can reach the port could trash your Drive.
+    # Require a per-launch token, carried in the URL and sent by the page.
+    token = os.environ.get("GDRIVE_DEDUPE_TOKEN") or (
+        None if loopback else secrets.token_urlsafe(24)
+    )
+    if token:
+        url += f"?token={token}"
+        typer.echo("Access token required — use the exact URL below (it carries the token).")
     if not no_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     typer.echo(f"Serving on {url} (Ctrl-C to stop)")
-    application = create_app(allowed_hosts=None if wildcard else [host])
+    application = create_app(allowed_hosts=None if wildcard else [host], token=token)
     uvicorn.run(application, host=host, port=port, log_level="warning")
 
 
