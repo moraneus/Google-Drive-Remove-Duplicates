@@ -26,6 +26,14 @@ All notable changes to this project are documented here. The format is based on
   `GDRIVE_DEDUPE_NO_BROWSER`) and the consent link is shown in the page when no
   browser can be opened.
 
+### Changed
+- **Redesigned web interface.** A document-like page in your system's light or dark
+  theme: a side rail that tracks the four steps and lists the tools, a written verdict
+  (*keep* / *remove* / *protected*) on every file instead of color alone, plain-language
+  copy, SVG icons instead of emoji, locale-aware numbers and dates, visible keyboard
+  focus, reduced-motion support, and a layout that works at phone width. Nothing is
+  loaded from third parties; system fonts only. All screenshots refreshed.
+
 ### Security
 - The web server only answers requests whose `Host` it knows (DNS-rebinding defense)
   and refuses any request whose `Origin` is not exactly its own scheme, host and port

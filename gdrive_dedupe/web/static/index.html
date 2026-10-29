@@ -3,199 +3,246 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171a" media="(prefers-color-scheme: dark)">
 <title>Drive Dedupe</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <h1>Drive Dedupe</h1>
-  <p class="tagline">Find and safely remove duplicate files in your Google Drive</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-drive" viewBox="0 0 24 24"><path d="M3 15h18M3 15l3.5-8h11L21 15M3 15v4h18v-4"/><circle cx="17" cy="17" r=".6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19L12 4zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+</svg>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="icon" aria-hidden="true"><use href="#i-drive"/></svg>
+    <h1>Drive Dedupe</h1>
+  </div>
+  <div id="conn" class="conn" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="conn-text">Checking connection…</span></div>
 </header>
-<main>
-  <!-- Stage: Connect -->
-  <section id="stage-connect" class="card">
-    <h2>1 · Connect</h2>
-    <p id="auth-info">Checking connection…</p>
 
-    <div id="setup-panel" hidden>
-      <p>To connect, the app needs its own free Google <b>OAuth client</b>
-        <span class="tip" tabindex="0" data-tip="OAuth is how Google lets an app act on your behalf without ever seeing your password. The client file identifies this app to Google. You create it once, in your own Google account — it takes about 5 minutes.">ⓘ</span>
-        — a one-time setup:</p>
-      <ol class="setup-steps">
-        <li>
-          <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a Google Cloud project</a>
-          <span class="tip" tabindex="0" data-tip="Any name works, e.g. 'drive-dedupe'. It's free — no billing account needed.">ⓘ</span>
-        </li>
-        <li>
-          <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Enable the Google Drive API</a>
-          <span class="tip" tabindex="0" data-tip="Make sure your new project is selected in the top bar, then click 'Enable'.">ⓘ</span>
-        </li>
-        <li>
-          <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Set up the consent screen</a>
-          <span class="tip" tabindex="0" data-tip="Choose 'External' and fill in an app name and your email. Then, under Audience → Test users, add your own Google address — that lets you use the app without Google's review process.">ⓘ</span>
-        </li>
-        <li>
-          <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Create an OAuth client</a> and download its JSON
-          <span class="tip" tabindex="0" data-tip="Click 'Create client', pick application type 'Desktop app', then download the JSON file. That's the file to upload below.">ⓘ</span>
-        </li>
-      </ol>
-      <div class="row">
-        <label class="upload-btn" for="credentials-file">⬆ Upload the downloaded JSON file</label>
-        <input type="file" id="credentials-file" accept=".json,application/json" hidden>
-        <span id="upload-result" class="progress"></span>
+<div class="frame">
+  <nav class="rail" aria-label="Steps and tools">
+    <ol>
+      <li id="rail-connect" class="is-current"><a href="#stage-connect"><span class="mark" aria-hidden="true">1</span>Connect</a></li>
+      <li id="rail-scan" class="is-locked"><a href="#stage-scan"><span class="mark" aria-hidden="true">2</span>Scan</a></li>
+      <li id="rail-review" class="is-locked"><a href="#stage-review"><span class="mark" aria-hidden="true">3</span>Review</a></li>
+      <li id="rail-clean" class="is-locked"><a href="#stage-clean"><span class="mark" aria-hidden="true">4</span>Clean</a></li>
+    </ol>
+    <p class="rail-title" id="rail-tools-title" hidden>After a scan</p>
+    <ul id="rail-tools" hidden>
+      <li><a href="#stage-folders">Empty folders</a></li>
+      <li><a href="#stage-old">Old files</a></li>
+      <li><a href="#stage-largest">Largest files</a></li>
+    </ul>
+  </nav>
+
+  <main id="main" class="content">
+    <!-- Stage: Connect -->
+    <section id="stage-connect" class="stage" aria-labelledby="h-connect">
+      <div class="stage-head">
+        <div>
+          <h2 id="h-connect">Connect your Drive</h2>
+          <p id="auth-info">Checking connection…</p>
+        </div>
       </div>
-      <p class="warn">⚠️ <b>Keep this file private.</b> It identifies the app to Google —
-        don't share it, email it, or commit it to git. Uploading stores it only on this
-        computer (<code>~/.gdrive-dedupe/credentials.json</code>), and you can delete it
-        there any time.</p>
-    </div>
 
-    <div class="row">
-      <button id="btn-connect">Connect Google Drive (read-only)</button>
-      <button id="btn-disconnect" class="ghost" hidden>Disconnect</button>
-    </div>
-    <p id="auth-link" class="warn" hidden>No browser tab opened? Open this link to approve
-      access: <a id="auth-link-a" href="#" target="_blank" rel="noopener">Google consent page</a></p>
-    <p class="hint">Scanning uses a read-only scope — the app cannot modify anything.</p>
-  </section>
-
-  <!-- Stage: Scan -->
-  <section id="stage-scan" class="card" hidden>
-    <h2>2 · Scan</h2>
-    <div class="row">
-      <button id="btn-scan">Scan My Drive</button>
-      <span id="scan-progress" class="progress"></span>
-    </div>
-  </section>
-
-  <!-- Stage: Review -->
-  <section id="stage-review" class="card" hidden>
-    <h2>3 · Review duplicates</h2>
-    <div id="summary" class="stats"></div>
-
-    <datalist id="folder-list"></datalist>
-    <div class="rules">
-      <div class="row">
-        <label for="scope-folder">Look only in</label>
-        <input list="folder-list" id="scope-folder" placeholder="whole Drive" size="28">
-        <span class="tip" tabindex="0" data-tip="Narrow everything below (duplicates and the tools) to one folder and its subfolders. Duplicates are then pairs that both live inside it. Clear the box for the whole Drive.">ⓘ</span>
+      <div id="setup-panel" class="setup" hidden>
+        <p>The app needs its own free Google <b>OAuth client</b>
+          <span class="tip" tabindex="0" role="note" data-tip="OAuth is how Google lets an app act on your behalf without ever seeing your password. The client file identifies this app to Google. You create it once, in your own Google account; it takes about five minutes."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span>
+          — a one-time setup:</p>
+        <ol class="steps">
+          <li><a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Create a Google Cloud project</a>
+            <span class="tip" tabindex="0" role="note" data-tip="Any name works, for example “drive-dedupe”. It’s free; no billing account needed."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span></li>
+          <li><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Enable the Google Drive API</a>
+            <span class="tip" tabindex="0" role="note" data-tip="Make sure your new project is selected in the top bar, then click “Enable”."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span></li>
+          <li><a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Set up the consent screen</a>
+            <span class="tip" tabindex="0" role="note" data-tip="Choose “External” and fill in an app name and your email. Then, under Audience → Test users, add your own Google address. That lets you use the app without Google’s review process."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span></li>
+          <li><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Create an OAuth client</a> and download its JSON
+            <span class="tip" tabindex="0" role="note" data-tip="Click “Create client”, pick application type “Desktop app”, then download the JSON file. That’s the file to upload below."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span></li>
+        </ol>
+        <div class="row">
+          <label class="btn upload" for="credentials-file"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Upload the downloaded JSON file
+            <input type="file" id="credentials-file" name="credentials" accept=".json,application/json"></label>
+          <span id="upload-result" class="status" aria-live="polite"></span>
+        </div>
+        <p class="callout"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span><b>Keep this file private.</b> It identifies the app to Google. Don’t share it, email it, or commit it to git. Uploading stores it only on this computer, at <code>~/.gdrive-dedupe/credentials.json</code>; delete it there any time.</span></p>
       </div>
-      <div class="row">
-        <label for="strategy">Pre-select copies to remove, keeping the</label>
-        <select id="strategy">
-          <option value="newest" selected>newest file</option>
-          <option value="oldest">oldest file</option>
-          <option value="shallowest">copy closest to the top</option>
-        </select>
+
+      <div class="actions">
+        <button id="btn-connect" type="button">Connect Google Drive (read-only)</button>
+        <button id="btn-disconnect" class="secondary" type="button" hidden>Disconnect</button>
       </div>
-      <div class="row">
-        <label for="prefer-folder">Prefer to keep copies in</label>
-        <input list="folder-list" id="prefer-folder" placeholder="any folder" size="22">
-        <span class="tip" tabindex="0" data-tip="When a group has a copy inside this folder, that copy is kept, whatever the strategy says. The strategy still decides between several copies inside it.">ⓘ</span>
+      <p id="auth-link" class="callout" hidden><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>No browser tab opened? <a id="auth-link-a" href="#" target="_blank" rel="noopener">Open Google’s consent page</a> to approve access.</span></p>
+      <p class="note">Scanning uses a read-only scope. The app can’t change anything until you start a cleanup and grant write access separately.</p>
+    </section>
+
+    <!-- Stage: Scan -->
+    <section id="stage-scan" class="stage" aria-labelledby="h-scan" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-scan">Scan your Drive</h2>
+          <p>Reads file names, sizes and checksums. No file contents are downloaded.</p>
+        </div>
       </div>
-      <div class="row">
-        <label for="protect-folder">Never trash anything in</label>
-        <input list="folder-list" id="protect-folder" placeholder="folder path" size="22">
-        <button id="btn-protect-add" class="ghost">Protect</button>
-        <span class="tip" tabindex="0" data-tip="Files inside protected folders are never pre-selected and the app refuses to trash them, even if you tick them. When a group has a protected copy, that copy becomes the keeper so the others can go.">ⓘ</span>
-        <span id="protect-list" class="chips"></span>
+      <div class="actions">
+        <button id="btn-scan" type="button">Scan my Drive</button>
+        <span id="scan-progress" class="status" aria-live="polite"></span>
       </div>
-      <p id="rules-error" class="error" hidden></p>
-    </div>
-    <div id="groups"></div>
-  </section>
+    </section>
 
-  <!-- Stage: Clean -->
-  <section id="stage-clean" class="card" hidden>
-    <h2>4 · Clean</h2>
-    <p id="clean-summary"></p>
-    <p class="hint">Files are moved to Drive's trash (recoverable for 30 days). An audit log
-      is kept locally, and you can undo the last batch here.</p>
-    <div class="row">
-      <button id="btn-clean" class="danger">Move selected to trash…</button>
-      <button id="btn-undo" class="ghost" hidden>Undo last batch</button>
-    </div>
-    <p id="clean-result"></p>
-    <details id="batches-panel" hidden>
-      <summary>Past batches &amp; freeing storage</summary>
-      <p class="hint">⚠️ Files in Drive's trash <b>still count toward your storage quota</b>
-        until the trash is emptied. "Delete permanently" empties just the files of one batch
-        — only those still in the trash — and <b>cannot be undone</b>.</p>
-      <div id="batches"></div>
-    </details>
-  </section>
+    <!-- Stage: Review -->
+    <section id="stage-review" class="stage" aria-labelledby="h-review" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-review">Review duplicates</h2>
+          <p>Two files are duplicates when Google’s checksums match, so their contents are identical byte for byte.</p>
+        </div>
+      </div>
+      <p id="summary" class="lede"></p>
 
-  <!-- Tool: Empty folders -->
-  <section id="stage-folders" class="card" hidden>
-    <h2>5 · Empty folders</h2>
-    <p class="hint">Folders with no files anywhere inside (folders that only contain other
-      empty folders count too). Trashing a folder also removes its empty subfolders.</p>
-    <div class="row">
-      <button id="btn-find-folders">Find empty folders</button>
-      <span id="folders-info" class="progress"></span>
-    </div>
-    <div id="folders-list"></div>
-    <div class="row">
-      <button id="btn-trash-folders" class="danger" hidden>Move selected folders to trash…</button>
-    </div>
-  </section>
+      <datalist id="folder-list"></datalist>
+      <div class="rules" role="group" aria-label="Keep rules">
+        <div class="row">
+          <label for="scope-folder">Look only in</label>
+          <input list="folder-list" id="scope-folder" name="scope" placeholder="whole Drive" size="30" autocomplete="off" spellcheck="false">
+          <span class="tip" tabindex="0" role="note" data-tip="Narrow the review and the tools below to one folder and its subfolders. Duplicates are then pairs that both live inside it. Clear the box for the whole Drive."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span>
+        </div>
+        <div class="row">
+          <label for="strategy">Keep the</label>
+          <select id="strategy" name="strategy">
+            <option value="newest" selected>newest copy</option>
+            <option value="oldest">oldest copy</option>
+            <option value="shallowest">copy closest to the top</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="prefer-folder">Prefer to keep copies in</label>
+          <input list="folder-list" id="prefer-folder" name="prefer" placeholder="any folder" size="30" autocomplete="off" spellcheck="false">
+          <span class="tip" tabindex="0" role="note" data-tip="When a group has a copy inside this folder, that copy is kept, whatever the strategy says. The strategy still decides between several copies inside it."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span>
+        </div>
+        <div class="row">
+          <label for="protect-folder">Never trash anything in</label>
+          <input list="folder-list" id="protect-folder" name="protect" placeholder="folder path, e.g. /Archive" size="30" autocomplete="off" spellcheck="false">
+          <button id="btn-protect-add" class="secondary" type="button">Protect folder</button>
+          <span class="tip" tabindex="0" role="note" data-tip="Files inside protected folders are never pre-selected and the app refuses to trash them, even if you tick them. When a group has a protected copy, that copy becomes the keeper so the others can go."><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></span>
+          <span id="protect-list" class="chips" aria-label="Protected folders"></span>
+        </div>
+        <p id="rules-error" class="field-error" role="alert" hidden></p>
+      </div>
+      <div id="groups"></div>
+    </section>
 
-  <!-- Tool: Older files -->
-  <section id="stage-old" class="card" hidden>
-    <h2>6 · Older files</h2>
-    <p class="hint">Find files you haven't touched in years. These are unique files (not
-      duplicates), so nothing is pre-selected — tick only what you're sure about.</p>
-    <div class="row">
-      <label for="before-date">Last modified before</label>
-      <input type="date" id="before-date">
-      <button id="btn-find-old">Find</button>
-      <span id="old-info" class="progress"></span>
-    </div>
-    <div id="old-list"></div>
-    <div class="row">
-      <button id="btn-trash-old" class="danger" hidden>Move selected files to trash…</button>
-    </div>
-  </section>
+    <!-- Stage: Clean -->
+    <section id="stage-clean" class="stage" aria-labelledby="h-clean" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-clean">Clean up</h2>
+          <p id="clean-summary"></p>
+        </div>
+      </div>
+      <p class="note">Files go to Drive’s trash, where they stay recoverable for 30 days. Every batch is written to a local audit log first, and you can undo the last one here.</p>
+      <div class="actions">
+        <button id="btn-clean" class="danger" type="button"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg><span id="btn-clean-text">Move selected to trash</span></button>
+        <button id="btn-undo" class="secondary" type="button" hidden>Undo last batch</button>
+      </div>
+      <p id="clean-result" class="live" aria-live="polite"></p>
+      <details id="batches-panel" class="batches" hidden>
+        <summary>Past batches and freeing storage</summary>
+        <p class="callout" style="margin:0.75rem 0"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span>Files in Drive’s trash <b>still count toward your storage</b> until the trash is emptied. “Delete permanently” empties the files of one batch, only those still in the trash, and <b>can’t be undone</b>.</span></p>
+        <div id="batches"></div>
+      </details>
+    </section>
 
-  <!-- Tool: Largest files -->
-  <section id="stage-largest" class="card" hidden>
-    <h2>7 · Largest files</h2>
-    <p class="hint">Your biggest files, largest first — the quickest way to free space when
-      Drive is full. Nothing is pre-selected.</p>
-    <div class="row">
-      <label for="largest-limit">Show top</label>
-      <input type="number" id="largest-limit" value="50" min="1" max="1000" size="5">
-      <button id="btn-find-largest">Find</button>
-      <span id="largest-info" class="progress"></span>
-    </div>
-    <div id="largest-list"></div>
-    <div class="row">
-      <button id="btn-trash-largest" class="danger" hidden>Move selected files to trash…</button>
-    </div>
-  </section>
-</main>
+    <!-- Tool: Empty folders -->
+    <section id="stage-folders" class="stage" aria-labelledby="h-folders" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-folders">Empty folders</h2>
+          <p>Folders with no files anywhere inside, counting subfolders. Trashing a folder removes its empty subfolders too.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-find-folders" class="secondary" type="button">Find empty folders</button>
+        <span id="folders-info" class="status" aria-live="polite"></span>
+      </div>
+      <div id="folders-list"></div>
+      <div class="actions">
+        <button id="btn-trash-folders" class="danger" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Move selected folders to trash</button>
+      </div>
+    </section>
 
-<dialog id="confirm-dialog">
-  <h3>Confirm: move these files to trash?</h3>
+    <!-- Tool: Old files -->
+    <section id="stage-old" class="stage" aria-labelledby="h-old" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-old">Old files</h2>
+          <p>Files you haven’t touched in years. These are unique files, not duplicates, so nothing is pre-selected.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <label for="before-date">Last modified before</label>
+        <input type="date" id="before-date" name="before">
+        <button id="btn-find-old" class="secondary" type="button">Find old files</button>
+        <span id="old-info" class="status" aria-live="polite"></span>
+      </div>
+      <div id="old-list"></div>
+      <div class="actions">
+        <button id="btn-trash-old" class="danger" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Move selected files to trash</button>
+      </div>
+    </section>
+
+    <!-- Tool: Largest files -->
+    <section id="stage-largest" class="stage" aria-labelledby="h-largest" hidden>
+      <div class="stage-head">
+        <div>
+          <h2 id="h-largest">Largest files</h2>
+          <p>Your biggest files first, the quickest way to free space when Drive is full. Nothing is pre-selected.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <label for="largest-limit">Show top</label>
+        <input type="number" id="largest-limit" name="limit" value="50" min="1" max="1000" inputmode="numeric">
+        <button id="btn-find-largest" class="secondary" type="button">Find largest files</button>
+        <span id="largest-info" class="status" aria-live="polite"></span>
+      </div>
+      <div id="largest-list"></div>
+      <div class="actions">
+        <button id="btn-trash-largest" class="danger" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Move selected files to trash</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="confirm-dialog" aria-labelledby="confirm-title">
+  <h3 id="confirm-title">Move these to trash?</h3>
   <ul id="confirm-list"></ul>
-  <p id="confirm-count"></p>
-  <div class="row">
-    <button id="confirm-yes" class="danger">Move to trash</button>
-    <button id="confirm-no" class="ghost">Cancel</button>
+  <p id="confirm-count" class="note"></p>
+  <div class="actions">
+    <button id="confirm-yes" class="danger" type="button">Move to trash</button>
+    <button id="confirm-no" class="secondary" type="button">Cancel</button>
   </div>
 </dialog>
 
-<dialog id="purge-dialog">
-  <h3>Delete permanently?</h3>
-  <p>This removes the files of batch <code id="purge-batch-id"></code> from Drive's trash
-    for good. <b>There is no undo.</b> Files you already restored by hand are left alone.</p>
+<dialog id="purge-dialog" aria-labelledby="purge-title">
+  <h3 id="purge-title">Delete permanently?</h3>
+  <p>This removes the files of batch <code id="purge-batch-id" translate="no"></code> from Drive’s trash for good. <b>There is no undo.</b> Files you already restored by hand are left alone.</p>
   <ul id="purge-list"></ul>
-  <p id="purge-count"></p>
-  <label for="purge-input">Type the batch id to confirm:</label>
-  <div class="row">
-    <input type="text" id="purge-input" autocomplete="off" spellcheck="false">
-    <button id="purge-yes" class="danger" disabled>Delete permanently</button>
-    <button id="purge-no" class="ghost">Cancel</button>
+  <p id="purge-count" class="note"></p>
+  <label for="purge-input">Type the batch id to confirm</label>
+  <div class="actions">
+    <input type="text" id="purge-input" name="confirm" autocomplete="off" spellcheck="false" translate="no">
+    <button id="purge-yes" class="danger" type="button" disabled>Delete permanently</button>
+    <button id="purge-no" class="secondary" type="button">Cancel</button>
   </div>
 </dialog>
 

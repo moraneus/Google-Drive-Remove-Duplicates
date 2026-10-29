@@ -16,6 +16,8 @@ audit log and one-click undo.
 > Looking for the original single-script version? It's preserved at
 > [v1.0.0](https://github.com/moraneus/Google-Drive-Remove-Duplicates/releases/tag/v1.0.0).
 
+![Drive Dedupe reviewing duplicates: a side rail with the four steps, keep rules, and a ledger of files with keep, remove and protected verdicts](docs/img/app.png)
+
 ## Features
 
 - **Exact detection** — files are grouped by MD5 checksum; only true content duplicates
@@ -42,7 +44,10 @@ audit log and one-click undo.
 - **Docker image** — run the web UI in a container, with the same safety model.
 - **Only your files** — files merely *shared with you* are never touched.
 - **Private** — no telemetry, no third-party servers; the web server binds to
-  `127.0.0.1` only.
+  `127.0.0.1` only, and the page loads no fonts, scripts or styles from anywhere else.
+- **Quiet interface** — a document-like page in your system's light or dark theme, with
+  a written verdict (*keep*, *remove*, *protected*) on every file so nothing rides on
+  color alone. Keyboard and screen-reader friendly, and usable on a phone.
 
 ## Safety model
 
@@ -115,25 +120,29 @@ See [docker-compose.yml](docker-compose.yml) for the knobs
 
 ## Web UI
 
-The interface walks through four stages:
+The side rail tracks four steps; the three tools appear under it after a scan.
 
 1. **Connect** — authorize read-only access via Google's consent screen.
 2. **Scan** — fetches file metadata (no file contents are downloaded) with live progress.
-3. **Review** — duplicate groups sorted by wasted space. Keep rules pre-select which
-   copies to remove; every checkbox is yours to override, and each file links to Drive
-   so you can look before you leap.
+3. **Review** — duplicate groups sorted by wasted space, each file with a verdict pill.
+   Keep rules pre-select which copies to remove; every checkbox is yours to override,
+   and each file links to Drive so you can look before you leap.
    - **Look only in** a folder to scope the review (and the tools below) to that subtree.
      Duplicates are then pairs that both live inside it.
    - **Keep the** newest, oldest, or the copy *closest to the top* of your folder tree.
    - **Prefer to keep copies in** a folder: when a group has a copy there, that one is
      kept whatever the strategy says.
-   - **Never trash anything in** protected folders: those copies are locked 🔒, and the
-     server refuses to trash them. When a group has a protected copy, it becomes the
+   - **Never trash anything in** protected folders: those copies show a *protected*
+     verdict with a lock, and the server refuses to trash them. When a group has a protected copy, it becomes the
      keeper so the others can go.
 4. **Clean** — confirmation dialog → files move to Drive's trash → **Undo** if you
    change your mind.
 
-![Reviewing duplicate groups — keepers in green, copies selected for trash in red, a protected copy locked](docs/img/review.png)
+![Reviewing duplicate groups: keep, remove and protected verdicts, with the keep rules above](docs/img/review.png)
+
+The same page in dark mode, which follows your system setting:
+
+![The review stage in dark mode](docs/img/review-dark.png)
 
 Nothing is trashed without an explicit confirmation listing every affected file:
 

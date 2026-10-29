@@ -41,6 +41,54 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+const fmt = new Intl.NumberFormat();
+const n = (value) => fmt.format(value);
+const plural = (count, one, many) => `${n(count)} ${count === 1 ? one : many}`;
+
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#${name}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+function pill(kind, text) {
+  const span = document.createElement("span");
+  span.className = `pill ${kind}`;
+  if (kind === "guard") span.appendChild(icon("i-lock"));
+  span.append(text);
+  return span;
+}
+
+// The side rail mirrors progress through the four stages.
+function setRail(current, done) {
+  const order = ["connect", "scan", "review", "clean"];
+  for (const step of order) {
+    const li = $(`#rail-${step}`);
+    li.classList.remove("is-current", "is-done", "is-locked");
+    const mark = li.querySelector(".mark");
+    if (done.includes(step)) {
+      li.classList.add("is-done");
+      mark.replaceChildren(icon("i-check"));
+    } else {
+      mark.textContent = order.indexOf(step) + 1;
+      if (step === current) li.classList.add("is-current");
+      else li.classList.add("is-locked");
+    }
+  }
+  const toolsReady = done.includes("scan");
+  $("#rail-tools").hidden = !toolsReady;
+  $("#rail-tools-title").hidden = !toolsReady;
+}
+
+function setConnection(text, on) {
+  $("#conn-text").textContent = text;
+  $("#conn").classList.toggle("is-on", on);
+}
+
 // ---- connect ----
 
 async function refreshAuth() {
@@ -53,13 +101,17 @@ async function refreshAuth() {
   }
   const connected = status.connected;
   if (connected) {
-    $("#auth-info").textContent =
-      `Connected${status.write_access ? " (write access granted)" : " (read-only)"}`;
+    const mode = status.write_access ? "write access granted" : "read-only";
+    $("#auth-info").textContent = `Connected, ${mode}.`;
+    setConnection(`Connected · ${mode}`, true);
   } else if (status.has_client_secrets) {
-    $("#auth-info").textContent = "OAuth client configured ✓ — ready to connect.";
+    $("#auth-info").textContent = "Your OAuth client is in place. Connect to continue.";
+    setConnection("Not connected", false);
   } else {
-    $("#auth-info").textContent = "Not connected — one-time setup needed:";
+    $("#auth-info").textContent = "Not connected yet. A one-time setup comes first.";
+    setConnection("Not connected", false);
   }
+  if (!currentResult) setRail(connected ? "scan" : "connect", connected ? ["connect"] : []);
   show("#setup-panel", !connected && !status.has_client_secrets);
   $("#btn-connect").hidden = connected;
   $("#btn-connect").disabled = !status.has_client_secrets;
@@ -83,7 +135,7 @@ async function uploadCredentials(event) {
       method: "POST",
       body: JSON.stringify({ content }),
     });
-    $("#upload-result").textContent = "Saved ✓ — now click Connect below.";
+    $("#upload-result").textContent = "Saved. Now connect below.";
     await refreshAuth();
     show("#setup-panel", true); // keep the success message visible until they connect
   } catch (err) {
@@ -98,7 +150,7 @@ async function connect(writeAccess) {
     method: "POST",
     body: JSON.stringify({ write_access: writeAccess }),
   });
-  $("#auth-info").textContent = "A Google consent tab should open — approve access there…";
+  $("#auth-info").textContent = "A Google consent tab should open. Approve access there…";
   const poll = setInterval(async () => {
     const status = await refreshAuth();
     if (writeAccess ? status.write_access : status.connected) clearInterval(poll);
@@ -114,8 +166,8 @@ function watchScan() {
   source.onmessage = async (event) => {
     const snap = JSON.parse(event.data);
     if (snap.status === "scanning") {
-      const n = snap.progress.files_fetched || 0;
-      $("#scan-progress").textContent = `Fetched metadata for ${n} files…`;
+      const count = snap.progress.files_fetched || 0;
+      $("#scan-progress").textContent = `Scanning… ${plural(count, "file", "files")} so far`;
     } else if (snap.status === "done") {
       source.close();
       $("#scan-progress").textContent = "";
@@ -124,7 +176,8 @@ function watchScan() {
       await loadBatches();
     } else if (snap.status === "error") {
       source.close();
-      $("#scan-progress").textContent = `Error: ${snap.error}`;
+      $("#scan-progress").textContent = `Scan failed: ${snap.error}`;
+      $("#scan-progress").classList.add("is-error");
     }
   };
   source.onerror = () => {
@@ -135,10 +188,13 @@ function watchScan() {
 
 async function startScan() {
   $("#scan-progress").textContent = "Starting…";
+  $("#scan-progress").classList.remove("is-error");
+  setRail("scan", ["connect"]);
   try {
     await api("/api/scan", { method: "POST" });
   } catch (err) {
-    $("#scan-progress").textContent = `Error: ${err.message}`;
+    $("#scan-progress").textContent = `Couldn’t start the scan: ${err.message}`;
+    $("#scan-progress").classList.add("is-error");
     return;
   }
   watchScan();
@@ -200,8 +256,8 @@ function renderProtected() {
     chip.textContent = folders.byId.get(id) || id;
     const x = document.createElement("button");
     x.type = "button";
-    x.title = "Remove";
-    x.textContent = "✕";
+    x.setAttribute("aria-label", `Stop protecting ${folders.byId.get(id) || id}`);
+    x.appendChild(icon("i-x"));
     x.addEventListener("click", () => { protectedIds.delete(id); renderProtected(); loadResult(); });
     chip.appendChild(x);
     box.appendChild(chip);
@@ -257,71 +313,98 @@ async function loadResult() {
   clearTools();
 }
 
+const dateFmt = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+function shortDate(iso) {
+  const d = new Date(iso || "");
+  return Number.isNaN(d.getTime()) ? "" : dateFmt.format(d);
+}
+
+function openLink(href) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.append("Open", icon("i-external"));
+  link.setAttribute("aria-label", "Open in Google Drive");
+  return link;
+}
+
+function skippedNote(count) {
+  if (!count) return "no Google Docs-format files to skip";
+  return `${plural(count, "Google Docs-format file", "Google Docs-format files")} skipped (they have no checksum)`;
+}
+
 function renderResult() {
   const r = currentResult;
-  show("#stage-review", true);
-  show("#stage-clean", true);
-  show("#stage-folders", true);
-  show("#stage-old", true);
-  show("#stage-largest", true);
-  const scope = r.scope
-    ? `<div class="scope-note">in <b>${escapeHtml(r.scope.path)}</b></div>` : "";
-  $("#summary").innerHTML = `
-    <div><b>${r.total_files}</b> files scanned</div>
-    <div><b>${r.duplicate_groups}</b> duplicate groups</div>
-    <div><b>${r.reclaimable_human}</b> reclaimable</div>
-    <div><b>${r.skipped_no_md5}</b> skipped (Google Docs formats)</div>${scope}`;
+  for (const id of ["#stage-review", "#stage-clean", "#stage-folders", "#stage-old", "#stage-largest"]) {
+    show(id, true);
+  }
+  setRail("review", ["connect", "scan"]);
+  const lede = $("#summary");
+  lede.innerHTML = "";
+  const where = r.scope ? ` in <span class="scope">${escapeHtml(r.scope.path)}</span>` : "";
+  lede.innerHTML = r.groups.length
+    ? `${escapeHtml(r.reclaimable_human)} to reclaim<small>${plural(r.duplicate_groups, "duplicate group", "duplicate groups")}
+       across ${plural(r.total_files, "file", "files")}${where}; ${skippedNote(r.skipped_no_md5)}</small>`
+    : `No duplicates${where}<small>${plural(r.total_files, "file", "files")} checked; ${skippedNote(r.skipped_no_md5)}</small>`;
   const container = $("#groups");
   container.innerHTML = "";
   if (!r.groups.length) {
-    container.innerHTML = "<p>No duplicates found 🎉</p>";
+    container.innerHTML = `<p class="empty">Nothing to remove here. Try a wider scope, or use the tools for empty folders, old files and large files.</p>`;
     updateCleanSummary();
     return;
   }
   for (const group of r.groups) {
     const details = document.createElement("details");
+    details.className = "group";
     details.open = r.groups.length <= 8;
     details.innerHTML = `
       <summary>
         <span class="gname">${escapeHtml(group.files[0].name)}</span>
-        <span class="gmeta">${group.files.length} copies · ${group.size_human} each ·
-          wastes ${group.wasted_human}</span>
+        <span class="gmeta">${plural(group.files.length, "copy", "copies")} of ${escapeHtml(group.size_human)},
+          ${escapeHtml(group.wasted_human)} wasted</span>
       </summary>`;
     const table = document.createElement("table");
-    table.innerHTML = "<tr><th></th><th>Name</th><th>Folder</th><th>Modified</th><th></th></tr>";
+    table.innerHTML =
+      "<tr><th><span class=\"visually-hidden\"></span></th><th>Verdict</th><th>Name</th><th>Folder</th><th>Modified</th><th></th></tr>";
     for (const file of group.files) {
       const row = document.createElement("tr");
-      row.className = file.protected ? "protected" : (file.suggested_trash ? "trash" : "keep");
+      row.className = file.protected ? "guard" : (file.suggested_trash ? "remove" : "keep");
 
       const checkCell = document.createElement("td");
+      checkCell.className = "check";
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.id = file.id;
       box.checked = file.suggested_trash;
       box.disabled = !!file.protected;
+      box.setAttribute("aria-label", `Remove ${file.name} in ${file.path}`);
       if (file.protected) box.title = "In a protected folder";
       checkCell.appendChild(box);
 
+      const verdictCell = document.createElement("td");
+      verdictCell.className = "verdict";
+      verdictCell.appendChild(
+        file.protected ? pill("guard", "protected") : pill(file.suggested_trash ? "remove" : "keep", file.suggested_trash ? "remove" : "keep")
+      );
       const nameCell = document.createElement("td");
+      nameCell.className = "name";
       nameCell.textContent = file.name;
       const pathCell = document.createElement("td");
       pathCell.className = "path";
       pathCell.textContent = file.path;
       const dateCell = document.createElement("td");
-      dateCell.textContent = (file.modified_time || "").slice(0, 10);
+      dateCell.className = "num";
+      dateCell.textContent = shortDate(file.modified_time);
       const linkCell = document.createElement("td");
-      if (file.web_view_link) {
-        const link = document.createElement("a");
-        link.href = file.web_view_link;
-        link.target = "_blank";
-        link.rel = "noopener";
-        link.textContent = "view";
-        linkCell.appendChild(link);
-      }
-      row.append(checkCell, nameCell, pathCell, dateCell, linkCell);
+      if (file.web_view_link) linkCell.appendChild(openLink(file.web_view_link));
+      row.append(checkCell, verdictCell, nameCell, pathCell, dateCell, linkCell);
       table.appendChild(row);
     }
-    details.appendChild(table);
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    wrap.appendChild(table);
+    details.appendChild(wrap);
     container.appendChild(details);
   }
   updateCleanSummary();
@@ -335,13 +418,17 @@ function selectedIds() {
 function updateCleanSummary() {
   document.querySelectorAll("#groups tr").forEach((row) => {
     const box = row.querySelector("input");
-    if (box && !box.disabled) row.className = box.checked ? "trash" : "keep";
+    if (!box || box.disabled) return;
+    row.className = box.checked ? "remove" : "keep";
+    const verdict = row.querySelector("td.verdict");
+    if (verdict) verdict.replaceChildren(pill(box.checked ? "remove" : "keep", box.checked ? "remove" : "keep"));
   });
-  const n = selectedIds().length;
-  $("#clean-summary").textContent = n
-    ? `${n} file(s) selected for trash.`
-    : "Nothing selected — tick the copies you want to remove.";
-  $("#btn-clean").disabled = n === 0;
+  const count = selectedIds().length;
+  $("#clean-summary").textContent = count
+    ? `${plural(count, "file", "files")} marked for removal. Change any verdict above before you continue.`
+    : "Nothing is marked for removal. Tick the copies you want to remove.";
+  $("#btn-clean-text").textContent = count ? `Move ${plural(count, "file", "files")} to trash` : "Move selected to trash";
+  $("#btn-clean").disabled = count === 0;
 }
 
 // ---- trash confirmation (shared by duplicates and the tools) ----
@@ -353,7 +440,8 @@ function openConfirm(ids, names, endpoint) {
   $("#confirm-list").innerHTML = names.slice(0, 15)
     .map((n) => `<li>${escapeHtml(n)}</li>`).join("");
   $("#confirm-count").textContent = names.length > 15
-    ? `…and ${names.length - 15} more.` : `${names.length} item(s) total.`;
+    ? `…and ${plural(names.length - 15, "more item", "more items")}. ${plural(names.length, "item", "items")} in total.`
+    : `${plural(names.length, "item", "items")} in total.`;
   $("#confirm-dialog").showModal();
 }
 
@@ -372,7 +460,7 @@ async function ensureWriteAccess(messageEl) {
   const status = await api("/api/auth/status");
   if (status.write_access) return true;
   messageEl.textContent =
-    "Requesting write access — approve the Google consent tab, then confirm again.";
+    "Write access is needed for this. Approve the Google consent tab, then confirm again.";
   await connect(true);
   return false;
 }
@@ -387,24 +475,24 @@ async function runPendingTrash() {
       body: JSON.stringify({ file_ids: pendingTrash.ids, protected: [...protectedIds] }),
     });
     $("#clean-result").textContent =
-      `Moved ${body.trashed} item(s) to trash (batch ${body.batch_id}). ` +
-      "Re-scan to refresh the lists.";
+      `Moved ${plural(body.trashed, "item", "items")} to trash as batch ${body.batch_id}. ` +
+      "Scan again to refresh the lists.";
     $("#btn-undo").hidden = false;
     pendingTrash = null;
     await loadBatches();
   } catch (err) {
-    $("#clean-result").textContent = `Error: ${err.message}`;
+    $("#clean-result").textContent = `Couldn’t move to trash: ${err.message}`;
   }
 }
 
 async function undo() {
   try {
     const body = await api("/api/undo", { method: "POST" });
-    $("#clean-result").textContent = `Restored ${body.restored} file(s) from trash.`;
+    $("#clean-result").textContent = `Restored ${plural(body.restored, "file", "files")} from trash.`;
     $("#btn-undo").hidden = true;
     await loadBatches();
   } catch (err) {
-    $("#clean-result").textContent = `Error: ${err.message}`;
+    $("#clean-result").textContent = `Couldn’t undo: ${err.message}`;
   }
 }
 
@@ -426,24 +514,35 @@ async function loadBatches() {
   container.innerHTML = "";
   if (!batchesCache.length) return;
   $("#btn-undo").hidden = !batchesCache.some((b) => b.status === "trashed");
+  const whenFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
   const table = document.createElement("table");
   table.innerHTML = "<tr><th>When</th><th>Batch</th><th>Files</th><th>Status</th><th></th></tr>";
   for (const b of batchesCache.slice(0, 20)) {
     const row = document.createElement("tr");
     const when = document.createElement("td");
-    when.textContent = (b.timestamp || "").replace("T", " ").slice(0, 16);
+    when.className = "num";
+    const t = new Date(b.timestamp || "");
+    when.textContent = Number.isNaN(t.getTime()) ? "" : whenFmt.format(t);
     const id = document.createElement("td");
-    id.innerHTML = `<code>${escapeHtml(b.batch_id)}</code>`;
+    const code = document.createElement("code");
+    code.textContent = b.batch_id;
+    code.setAttribute("translate", "no");
+    id.appendChild(code);
     const count = document.createElement("td");
-    count.textContent = b.count;
+    count.className = "num";
+    count.textContent = n(b.count);
     const status = document.createElement("td");
-    status.className = `status-${b.status}`;
-    status.textContent = { trashed: "in trash", undone: "restored", purged: "deleted" }[b.status]
-      || b.status;
+    status.className = `status status-${b.status}`;
+    const kind = { trashed: "remove", undone: "keep", purged: "guard" }[b.status] || "keep";
+    const label = { trashed: "in trash", undone: "restored", purged: "deleted" }[b.status] || b.status;
+    const p = pill(kind, label);
+    if (b.status === "purged") p.replaceChildren(label);
+    status.appendChild(p);
     const action = document.createElement("td");
     if (b.status === "trashed") {
       const btn = document.createElement("button");
-      btn.className = "danger";
+      btn.type = "button";
+      btn.className = "danger small";
       btn.textContent = "Delete permanently…";
       btn.addEventListener("click", () => openPurge(b));
       action.appendChild(btn);
@@ -451,7 +550,10 @@ async function loadBatches() {
     row.append(when, id, count, status, action);
     table.appendChild(row);
   }
-  container.appendChild(table);
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  wrap.appendChild(table);
+  container.appendChild(wrap);
 }
 
 let pendingPurge = null;
@@ -462,7 +564,8 @@ function openPurge(batch) {
   $("#purge-list").innerHTML = batch.files.slice(0, 15)
     .map((f) => `<li>${escapeHtml(f.name)}</li>`).join("");
   $("#purge-count").textContent = batch.files.length > 15
-    ? `…and ${batch.files.length - 15} more.` : `${batch.files.length} file(s) total.`;
+    ? `…and ${plural(batch.files.length - 15, "more file", "more files")}. ${plural(batch.files.length, "file", "files")} in total.`
+    : `${plural(batch.files.length, "file", "files")} in total.`;
   $("#purge-input").value = "";
   $("#purge-yes").disabled = true;
   $("#purge-dialog").showModal();
@@ -480,12 +583,12 @@ async function runPurge() {
       body: JSON.stringify({ batch_id: pendingPurge.batch_id, confirm: typed }),
     });
     $("#clean-result").textContent =
-      `Deleted ${body.deleted} file(s) permanently` +
-      (body.skipped ? `; skipped ${body.skipped} no longer in the trash.` : ".");
+      `Deleted ${plural(body.deleted, "file", "files")} permanently` +
+      (body.skipped ? `. Skipped ${plural(body.skipped, "file", "files")} no longer in the trash.` : ".");
     pendingPurge = null;
     await loadBatches();
   } catch (err) {
-    $("#clean-result").textContent = `Error: ${err.message}`;
+    $("#clean-result").textContent = `Couldn’t delete: ${err.message}`;
   }
 }
 
@@ -499,7 +602,10 @@ function checkedIds(containerSel) {
 function colorRows(container) {
   container.querySelectorAll("tr").forEach((row) => {
     const box = row.querySelector("input");
-    if (box) row.className = box.checked ? "trash" : "";
+    if (!box) return;
+    row.className = box.checked ? "remove" : "";
+    const verdict = row.querySelector("td.verdict");
+    if (verdict) verdict.replaceChildren(box.checked ? pill("remove", "remove") : "");
   });
 }
 
@@ -523,40 +629,48 @@ function renderToolTable(containerSel, items, preChecked) {
   if (!items.length) return;
   const table = document.createElement("table");
   table.innerHTML =
-    "<tr><th></th><th>Name</th><th>Folder</th><th>Modified</th><th>Size</th><th></th></tr>";
+    `<tr><th></th>${preChecked ? "<th>Verdict</th>" : ""}<th>Name</th><th>Folder</th><th>Modified</th><th>Size</th><th></th></tr>`;
   for (const item of items) {
     const row = document.createElement("tr");
-    row.className = preChecked ? "trash" : "";
+    row.className = preChecked ? "remove" : "";
 
     const checkCell = document.createElement("td");
+    checkCell.className = "check";
     const box = document.createElement("input");
     box.type = "checkbox";
     box.dataset.id = item.id;
     box.checked = preChecked;
+    box.setAttribute("aria-label", `Remove ${item.name} in ${item.path}`);
     checkCell.appendChild(box);
 
+    const cells = [checkCell];
+    if (preChecked) {
+      const verdictCell = document.createElement("td");
+      verdictCell.className = "verdict";
+      verdictCell.appendChild(pill("remove", "remove"));
+      cells.push(verdictCell);
+    }
     const nameCell = document.createElement("td");
+    nameCell.className = "name";
     nameCell.textContent = item.name;
     const pathCell = document.createElement("td");
     pathCell.className = "path";
     pathCell.textContent = item.path;
     const dateCell = document.createElement("td");
-    dateCell.textContent = (item.modified_time || "").slice(0, 10);
+    dateCell.className = "num";
+    dateCell.textContent = shortDate(item.modified_time);
     const sizeCell = document.createElement("td");
+    sizeCell.className = "num";
     sizeCell.textContent = item.size ? item.size_human : "";
     const linkCell = document.createElement("td");
-    if (item.web_view_link) {
-      const link = document.createElement("a");
-      link.href = item.web_view_link;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.textContent = "view";
-      linkCell.appendChild(link);
-    }
-    row.append(checkCell, nameCell, pathCell, dateCell, sizeCell, linkCell);
+    if (item.web_view_link) linkCell.appendChild(openLink(item.web_view_link));
+    row.append(...cells, nameCell, pathCell, dateCell, sizeCell, linkCell);
     table.appendChild(row);
   }
-  container.appendChild(table);
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  wrap.appendChild(table);
+  container.appendChild(wrap);
 }
 
 async function findFolders() {
@@ -565,10 +679,10 @@ async function findFolders() {
     toolItems.folders = body.folders;
     renderToolTable("#folders-list", body.folders, true);
     $("#folders-info").textContent = body.count
-      ? `${body.count} empty folder(s) found.` : "No empty folders 🎉";
+      ? `${plural(body.count, "empty folder", "empty folders")} found.` : "No empty folders.";
     $("#btn-trash-folders").hidden = body.count === 0;
   } catch (err) {
-    $("#folders-info").textContent = `Error: ${err.message}`;
+    $("#folders-info").textContent = `Couldn’t search: ${err.message}`;
   }
 }
 
@@ -583,11 +697,11 @@ async function findOld() {
     toolItems.old = body.files;
     renderToolTable("#old-list", body.files, false);
     $("#old-info").textContent = body.count
-      ? `${body.count} file(s) older than ${before} — ${body.total_human} total.`
+      ? `${plural(body.count, "file", "files")} older than ${before}, ${body.total_human} in total.`
       : `No files older than ${before}.`;
     $("#btn-trash-old").hidden = body.count === 0;
   } catch (err) {
-    $("#old-info").textContent = `Error: ${err.message}`;
+    $("#old-info").textContent = `Couldn’t search: ${err.message}`;
   }
 }
 
@@ -599,11 +713,11 @@ async function findLargest() {
     toolItems.largest = body.files;
     renderToolTable("#largest-list", body.files, false);
     $("#largest-info").textContent = body.count
-      ? `Top ${body.count} file(s) — ${body.total_human} total.`
+      ? `Top ${plural(body.count, "file", "files")}, ${body.total_human} in total.`
       : "No files with a size found.";
     $("#btn-trash-largest").hidden = body.count === 0;
   } catch (err) {
-    $("#largest-info").textContent = `Error: ${err.message}`;
+    $("#largest-info").textContent = `Couldn’t search: ${err.message}`;
   }
 }
 
