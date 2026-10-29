@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gdrive_dedupe.core import actions, auth, scanner, strategies
 from gdrive_dedupe.core.drive import DriveClient
@@ -124,9 +127,38 @@ def _drive_client(write_access: bool) -> DriveClient:
     return DriveClient(auth.build_service(creds))
 
 
-def create_app() -> FastAPI:
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
+
+
+def _allowed_hosts(extra: list[str] | None = None) -> list[str]:
+    """Host names the browser may use to reach this server.
+
+    Loopback is always allowed. `GDRIVE_DEDUPE_ALLOWED_HOSTS` (comma separated)
+    and `extra` add more, e.g. a LAN address when running in a container.
+    """
+    env = os.environ.get("GDRIVE_DEDUPE_ALLOWED_HOSTS", "")
+    more = [h.strip() for h in env.split(",") if h.strip()] + list(extra or [])
+    return list(dict.fromkeys([*LOOPBACK_HOSTS, *more]))
+
+
+def create_app(allowed_hosts: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="Google Drive Duplicate Finder")
     app.state.scan = ScanState()
+    hosts = _allowed_hosts(allowed_hosts)
+
+    # Defense against DNS rebinding: a page on attacker.example that resolves
+    # to 127.0.0.1 would arrive with its own Host header. Refuse it.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+
+    # Defense against cross-site requests: browsers attach an Origin header to
+    # every cross-origin request (and to all POSTs). Only our own origin may
+    # drive this API.
+    @app.middleware("http")
+    async def refuse_foreign_origin(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin is not None and urlsplit(origin).hostname not in hosts:
+            return JSONResponse(status_code=403, content={"detail": "cross-origin request refused"})
+        return await call_next(request)
 
     @app.get("/")
     def index():

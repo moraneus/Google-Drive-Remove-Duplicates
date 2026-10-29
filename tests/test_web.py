@@ -64,7 +64,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("GDRIVE_DEDUPE_HOME", str(tmp_path))
     application = webapp.create_app()
     application.state.scan.finish(RESULT)
-    return TestClient(application)
+    return TestClient(application, base_url="http://127.0.0.1")
 
 
 def connected(monkeypatch, write_access):
@@ -353,3 +353,60 @@ def test_purge_happy_path(client, monkeypatch):
     )
     body = client.post("/api/purge", json={"batch_id": "b1", "confirm": "b1"}).json()
     assert body == {"batch_id": "b1", "deleted": 1, "skipped": 1}
+
+
+# ---- request-origin hardening (CSRF / DNS rebinding) ----
+
+
+def test_rejects_untrusted_host_header(client):
+    resp = client.get("/api/auth/status", headers={"Host": "evil.example.com"})
+    assert resp.status_code == 400
+
+
+def test_allows_localhost_hosts(client):
+    for host in ("127.0.0.1:8765", "localhost:8765"):
+        assert client.get("/api/auth/status", headers={"Host": host}).status_code == 200
+
+
+def test_extra_allowed_host_from_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("GDRIVE_DEDUPE_HOME", str(tmp_path))
+    monkeypatch.setenv("GDRIVE_DEDUPE_ALLOWED_HOSTS", "dedupe.lan, nas.local")
+    tc = TestClient(webapp.create_app(), base_url="http://127.0.0.1")
+    assert tc.get("/api/auth/status", headers={"Host": "nas.local:8765"}).status_code == 200
+
+
+def test_post_with_foreign_origin_is_refused(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    called = []
+
+    def fake_purge(c, b, progress_cb=None):
+        called.append(b)
+        return {"batch_id": b, "deleted": [], "skipped": []}
+
+    monkeypatch.setattr(webapp.actions, "purge_batch", fake_purge)
+    resp = client.post(
+        "/api/purge",
+        json={"batch_id": "b1", "confirm": "b1"},
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert resp.status_code == 403
+    assert called == []
+
+
+def test_post_with_own_origin_is_allowed(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(webapp.actions, "undo_last", lambda c: [{"id": "a", "name": "a"}])
+    resp = client.post("/api/undo", headers={"Origin": "http://127.0.0.1:8765"})
+    assert resp.status_code == 200
+
+
+def test_get_with_foreign_origin_is_still_refused(client):
+    resp = client.get("/api/batches", headers={"Origin": "http://evil.example.com"})
+    assert resp.status_code == 403
+
+
+def test_create_app_accepts_extra_allowed_hosts(monkeypatch, tmp_path):
+    monkeypatch.setenv("GDRIVE_DEDUPE_HOME", str(tmp_path))
+    tc = TestClient(webapp.create_app(allowed_hosts=["192.168.1.20"]), base_url="http://127.0.0.1")
+    assert tc.get("/api/auth/status", headers={"Host": "192.168.1.20:8765"}).status_code == 200
+    assert tc.get("/api/auth/status", headers={"Host": "192.168.1.21:8765"}).status_code == 400
