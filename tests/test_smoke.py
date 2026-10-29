@@ -2,4 +2,4 @@ import gdrive_dedupe
 
 
 def test_version():
-    assert gdrive_dedupe.__version__ == "2.2.1"
+    assert gdrive_dedupe.__version__ == "2.3.0"
