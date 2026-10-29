@@ -475,3 +475,13 @@ def test_token_accepted_in_query_for_event_stream(token_client):
 def test_query_token_not_accepted_for_other_endpoints(token_client):
     assert token_client.get("/api/auth/status?token=s3cret").status_code == 401
     assert token_client.post("/api/scan?token=s3cret").status_code == 401
+
+
+def test_files_expose_checksum_and_parent_folder(client):
+    body = client.get("/api/scan/result").json()
+    group = next(g for g in body["groups"] if g["md5"] == "p")
+    first = group["files"][0]
+    assert first["md5"] == "p"
+    assert first["parent"] == "photos"
+    tool = client.get("/api/largest-files?limit=1").json()["files"][0]
+    assert tool["md5"] == "p" and tool["parent"] == "photos"

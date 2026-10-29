@@ -324,6 +324,58 @@ function shortDate(iso) {
   return Number.isNaN(d.getTime()) ? "" : dateFmt.format(d);
 }
 
+// Folder paths can mix scripts (Hebrew, Arabic…); isolating each segment in
+// <bdi> keeps every folder name readable without reordering the slashes.
+function pathNode(path) {
+  const frag = document.createDocumentFragment();
+  const parts = (path || "/").split("/").filter(Boolean);
+  if (!parts.length) {
+    frag.append("/");
+    return frag;
+  }
+  for (const part of parts) {
+    frag.append("/");
+    const bdi = document.createElement("bdi");
+    bdi.textContent = part;
+    frag.appendChild(bdi);
+  }
+  return frag;
+}
+
+// Link to the folder that holds the item, in Google Drive.
+function folderLink(path, parentId) {
+  const a = document.createElement("a");
+  a.href = parentId ? `https://drive.google.com/drive/folders/${encodeURIComponent(parentId)}`
+                    : "https://drive.google.com/drive/my-drive";
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.className = "path-link";
+  a.title = "Open this folder in Google Drive";
+  a.appendChild(pathNode(path));
+  return a;
+}
+
+function nameNode(name) {
+  const bdi = document.createElement("bdi");
+  bdi.textContent = name;
+  return bdi;
+}
+
+function checksumNode(md5) {
+  const code = document.createElement("code");
+  code.className = "sum";
+  code.setAttribute("translate", "no");
+  if (md5) {
+    code.textContent = `md5 ${md5.slice(0, 12)}…`;
+    code.title = `MD5 ${md5}`;
+    code.setAttribute("aria-label", `MD5 checksum ${md5}`);
+  } else {
+    code.textContent = "—";
+    code.title = "No checksum (Google Docs format)";
+  }
+  return code;
+}
+
 function openLink(href) {
   const link = document.createElement("a");
   link.href = href;
@@ -365,13 +417,14 @@ function renderResult() {
     details.open = r.groups.length <= 8;
     details.innerHTML = `
       <summary>
-        <span class="gname">${escapeHtml(group.files[0].name)}</span>
+        <span class="gname"><bdi>${escapeHtml(group.files[0].name)}</bdi></span>
         <span class="gmeta">${plural(group.files.length, "copy", "copies")} of ${escapeHtml(group.size_human)},
           ${escapeHtml(group.wasted_human)} wasted</span>
+        <span class="gsum" title="All copies share this MD5 checksum, so their contents are identical">MD5 <code translate="no">${escapeHtml(group.md5)}</code></span>
       </summary>`;
     const table = document.createElement("table");
     table.innerHTML =
-      "<tr><th><span class=\"visually-hidden\"></span></th><th>Verdict</th><th>Name</th><th>Folder</th><th>Modified</th><th></th></tr>";
+      "<tr><th></th><th>Verdict</th><th>Name</th><th>Folder</th><th>Modified</th><th></th></tr>";
     for (const file of group.files) {
       const row = document.createElement("tr");
       row.className = file.protected ? "guard" : (file.suggested_trash ? "remove" : "keep");
@@ -394,10 +447,11 @@ function renderResult() {
       );
       const nameCell = document.createElement("td");
       nameCell.className = "name";
-      nameCell.textContent = file.name;
+      nameCell.appendChild(nameNode(file.name));
+      nameCell.appendChild(checksumNode(file.md5));
       const pathCell = document.createElement("td");
       pathCell.className = "path";
-      pathCell.textContent = file.path;
+      pathCell.appendChild(folderLink(file.path, file.parent));
       const dateCell = document.createElement("td");
       dateCell.className = "num";
       dateCell.textContent = shortDate(file.modified_time);
@@ -657,10 +711,10 @@ function renderToolTable(containerSel, items, preChecked) {
     }
     const nameCell = document.createElement("td");
     nameCell.className = "name";
-    nameCell.textContent = item.name;
+    nameCell.appendChild(nameNode(item.name));
     const pathCell = document.createElement("td");
     pathCell.className = "path";
-    pathCell.textContent = item.path;
+    pathCell.appendChild(folderLink(item.path, item.parent));
     const dateCell = document.createElement("td");
     dateCell.className = "num";
     dateCell.textContent = shortDate(item.modified_time);

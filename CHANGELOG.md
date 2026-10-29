@@ -34,6 +34,12 @@ All notable changes to this project are documented here. The format is based on
   focus, reduced-motion support, and a layout that works at phone width. Nothing is
   loaded from third parties; system fonts only. All screenshots refreshed.
 
+### Added (review details)
+- Every duplicate group shows the MD5 checksum its copies share, and each file row
+  repeats it under the name (full value on hover), so the reason for the match is
+  visible. Folder paths are links that open that folder in Google Drive. Names and
+  paths in right-to-left scripts render in the right order.
+
 ### Fixed
 - In access-token mode (Docker, `--host`), the live scan progress stream was refused
   because a browser `EventSource` cannot send headers; the stream now accepts the token

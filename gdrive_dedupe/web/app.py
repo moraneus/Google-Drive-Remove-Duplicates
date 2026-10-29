@@ -56,6 +56,8 @@ def _file_dict(f) -> dict:
         "size_human": human_bytes(f.size),
         "modified_time": f.modified_time,
         "web_view_link": f.web_view_link,
+        "md5": f.md5,
+        "parent": f.parent,
     }
 
 

@@ -125,8 +125,10 @@ The side rail tracks four steps; the three tools appear under it after a scan.
 1. **Connect** — authorize read-only access via Google's consent screen.
 2. **Scan** — fetches file metadata (no file contents are downloaded) with live progress.
 3. **Review** — duplicate groups sorted by wasted space, each file with a verdict pill.
-   Keep rules pre-select which copies to remove; every checkbox is yours to override,
-   and each file links to Drive so you can look before you leap.
+   Every group shows the MD5 checksum its copies share, and each file repeats it under
+   its name, so you can see for yourself why they count as identical. Keep rules
+   pre-select which copies to remove; every checkbox is yours to override. *Open* opens
+   the file in Drive, and clicking a folder path opens that folder in Drive.
    - **Look only in** a folder to scope the review (and the tools below) to that subtree.
      Duplicates are then pairs that both live inside it.
    - **Keep the** newest, oldest, or the copy *closest to the top* of your folder tree.

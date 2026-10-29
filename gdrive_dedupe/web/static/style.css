@@ -195,6 +195,13 @@ input[type="number"] { width: 5.5rem; font-variant-numeric: tabular-nums; }
 .group[open] > summary::before { transform: rotate(45deg); }
 .gname { font-weight: 600; }
 .gmeta { color: var(--ink-2); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.gsum { color: var(--ink-3); font-size: 0.8rem; margin-left: auto; }
+.gsum code { font-size: 0.8rem; color: var(--ink-2); }
+code.sum { display: block; font-size: 0.75rem; color: var(--ink-3); cursor: help; margin-top: 0.1rem; white-space: nowrap; }
+td.path a.path-link { color: var(--ink-2); text-decoration: none; }
+td.path a.path-link:hover { color: var(--link); text-decoration: underline; }
+td.path a.path-link bdi { unicode-bidi: isolate; }
+td.path a.path-link { overflow-wrap: normal; word-break: keep-all; }
 .table-wrap { overflow-x: auto; max-width: 100%; }
 table { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.6rem; font-size: 0.92rem; }
 th { text-align: left; color: var(--ink-3); font-weight: 500; font-size: 0.82rem; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); }
@@ -203,7 +210,7 @@ tr:last-child td { border-bottom: 0; }
 td.check { width: 2rem; padding-left: 0.25rem; }
 td.check input { width: 1.05rem; height: 1.05rem; min-height: 0; margin: 0; accent-color: var(--ink); cursor: pointer; }
 td.name { min-width: 14ch; max-width: 28ch; overflow-wrap: break-word; }
-td a { white-space: nowrap; }
+td a:not(.path-link) { white-space: nowrap; }
 td.path { color: var(--ink-2); min-width: 12ch; max-width: 30ch; overflow-wrap: break-word; }
 td.num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
 td.verdict { width: 6.5rem; }
@@ -250,6 +257,7 @@ dialog .actions { margin-top: 1rem; }
   .rules input[list], .rules select { order: 2; width: 100%; }
   .rules #btn-protect-add, .rules .chips { order: 3; }
   .row > input[list] { width: 100%; }
-  .table-wrap table { min-width: 600px; }
+  .table-wrap table { min-width: 680px; }
+  .gsum { margin-left: 0; width: 100%; }
   .tip::after { left: auto; right: 0; width: min(280px, 85vw); }
 }
