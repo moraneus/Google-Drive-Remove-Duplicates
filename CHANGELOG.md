@@ -3,6 +3,37 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **Keep rules** for duplicate review (web + `clean`): a `shallowest` strategy that keeps
+  the copy closest to the top of the folder tree; *prefer folder* (`--prefer`) to keep
+  the copy inside a chosen folder; and *protected folders* (`--protect`, repeatable)
+  that are never trashed — enforced by the server, and a protected copy becomes the
+  group's keeper so the others can go.
+- **Folder scope**: narrow the review and all tools to one folder subtree without a
+  re-scan (web "Look only in"; `--folder` on `scan`, `clean`, `empty-folders`,
+  `old-files`, `largest-files`).
+- **Largest files** tool (web card + `largest-files --limit N [--apply]`).
+- **Permanent deletion of a batch** (web *Delete permanently…* + `purge`). Trashed files
+  still count toward Drive quota; purge empties one batch this tool trashed, deletes only
+  files still in the trash, requires the batch id typed back, and is recorded in the
+  audit log. Undo skips purged batches. The Clean stage now shows batch history.
+- **Docker support**: `Dockerfile`, `docker-compose.yml`, `scripts/docker-smoke.sh`,
+  and a CI job that builds the image and smoke-tests it. `web --host` and
+  `GDRIVE_DEDUPE_HOST` choose the bind address; the OAuth redirect listener is
+  configurable (`GDRIVE_DEDUPE_OAUTH_PORT`, `GDRIVE_DEDUPE_OAUTH_BIND`,
+  `GDRIVE_DEDUPE_NO_BROWSER`) and the consent link is shown in the page when no
+  browser can be opened.
+
+### Security
+- The web server only answers requests whose `Host` it knows (DNS-rebinding defense)
+  and refuses any request whose `Origin` is not exactly its own scheme, host and port
+  (CSRF defense, including from other local ports).
+- When bound to anything but loopback, every `/api` request must carry an access token
+  (`X-Dedupe-Token`), generated per launch or set with `GDRIVE_DEDUPE_TOKEN`, and
+  delivered through the URL printed at startup.
+
 ## [2.2.1] — 2026-10-29
 
 ### Fixed

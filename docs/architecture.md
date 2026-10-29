@@ -6,16 +6,18 @@
 gdrive_dedupe/
 ├── core/                  # engine — no UI concerns
 │   ├── models.py          # DriveFile, DuplicateGroup, ScanResult, human_bytes
-│   ├── auth.py            # OAuth flow, token storage, two-tier scopes
-│   ├── drive.py           # DriveClient: pagination, backoff, path resolution, trash
-│   ├── scanner.py         # group_duplicates, scan, find_empty_folders, find_old_files
-│   ├── strategies.py      # keep-newest / keep-oldest selection
-│   └── actions.py         # audit-logged trash batches + undo
+│   ├── auth.py            # OAuth flow (own local redirect server), token storage, two-tier scopes
+│   ├── drive.py           # DriveClient: pagination, backoff, path resolution, trash, purge calls
+│   ├── scanner.py         # group_duplicates, scan, scope_result, find_empty_folders,
+│   │                      #   find_old_files, find_largest_files, resolve_folder
+│   ├── strategies.py      # keeper selection: newest/oldest/shallowest, prefer_folder, protected
+│   └── actions.py         # audit-logged trash batches, undo, list_batches, purge_batch
 ├── web/
 │   ├── state.py           # ScanState: thread-safe background-job state
-│   ├── app.py             # FastAPI factory, REST + SSE endpoints, serialization
+│   ├── app.py             # FastAPI factory, REST + SSE endpoints, host/origin/token guards
 │   └── static/            # index.html, app.js, style.css (no build step)
-└── cli.py                 # Typer commands: scan, clean, undo, web
+└── cli.py                 # Typer commands: scan, clean, empty-folders, old-files,
+                           #   largest-files, purge, undo, web
 ```
 
 Both frontends (web, CLI) are thin layers over `core`; neither contains
@@ -35,28 +37,62 @@ credentials.json ──▶ auth.run_oauth_flow ──▶ token.json (0600)
                                  ▼
                     ScanResult{groups sorted by wasted bytes}
                                  │
-                    strategies.select_keeper      [pure, per group]
+                    scanner.scope_result          [optional: one folder subtree, regrouped]
+                                 │
+                    strategies.files_to_trash     [pure, per group: strategy, prefer, protected]
                                  │
                     user review + confirmation    [web table / CLI prompt]
                                  │
                     actions.trash_files(client)   [full scope, audit log FIRST]
                                  │
                     actions.undo_last(client)     [optional revert]
+                                 │
+                    actions.purge_batch(client)   [optional, irreversible: typed batch id,
+                                                   re-checks each file is still trashed]
 ```
+
+Folder scoping and the three tools (empty folders, old files, largest files) are pure
+functions over the `ScanResult` already in memory — no extra API calls. Keep rules work
+on `DriveFile.path` (the containing folder's path), so "inside folder X" means the path
+equals X or starts with `X/`.
 
 ## Key invariants
 
 - **Audit-first:** `actions.trash_files` appends the batch record to
   `audit.jsonl` before the first API mutation. A crash mid-batch cannot lose
   the recovery information.
-- **Trash-only:** the only mutation the codebase performs is
-  `files().update(trashed=…)`. There is no call to `files().delete()`.
+- **Trash-only, with one named exception:** cleaning performs only
+  `files().update(trashed=…)`. `files().delete()` exists in exactly one call site,
+  `DriveClient.delete_file`, used only by `actions.purge_batch`, which deletes only
+  files from a batch in the audit log, only after `is_trashed` confirms each one is
+  still in the trash, and only after the user typed the batch id back.
+- **Protected folders are server-enforced:** `/api/clean` and `/api/trash` reject ids
+  inside a protected folder; the CLI builds its plan with `files_to_trash`, which never
+  includes them.
 - **Scope tiers:** `auth.load_credentials(write_access=True)` returns `None`
   unless the stored token actually carries the full scope, forcing an explicit
   re-consent for cleanup.
 - **Keeper guarantee:** the web API rejects requests that would trash every
   copy in a group; the CLI derives its plan from `files_to_trash`, which always
   excludes the keeper.
+
+## Web request guards
+
+`create_app` installs three layers, outermost first: `TrustedHostMiddleware`
+(loopback plus `--host` / `GDRIVE_DEDUPE_ALLOWED_HOSTS`; defeats DNS rebinding), an
+exact-origin check (`Origin` must equal the request's own `scheme://host:port`; defeats
+CSRF from any other origin, including other local ports), and — only when a token is
+configured — an `X-Dedupe-Token` check on `/api/*`. The CLI configures a token whenever
+the bind address is not loopback. The page adopts the token from `?token=` in the launch
+URL, keeps it in `sessionStorage`, and strips it from the address bar.
+
+## OAuth in containers
+
+`auth._run_local_server` is a small replacement for `InstalledAppFlow.run_local_server`
+so the redirect port, bind address and browser opening are configurable
+(`GDRIVE_DEDUPE_OAUTH_PORT`, `GDRIVE_DEDUPE_OAUTH_BIND`, `GDRIVE_DEDUPE_NO_BROWSER`), and
+so the consent URL is exposed through `auth_status()["auth_url"]` while a flow is waiting.
+The page shows it as a link when no browser could be opened for the user.
 
 ## Web concurrency model
 
