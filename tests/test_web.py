@@ -6,15 +6,28 @@ from gdrive_dedupe.core.models import DriveFile, DuplicateGroup, ScanResult
 from gdrive_dedupe.web import app as webapp
 
 
-def f(id, md5="m", modified="2024-01-01T00:00:00Z", parent=""):
+def f(id, md5="m", modified="2024-01-01T00:00:00Z", parent="", path="/", size=10):
     return DriveFile(
-        id=id, name=f"{id}.txt", size=10, md5=md5, modified_time=modified, parent=parent
+        id=id,
+        name=f"{id}.txt",
+        size=size,
+        md5=md5,
+        modified_time=modified,
+        parent=parent,
+        path=path,
     )
 
 
-def folder(id, parent=""):
+def folder(id, parent="", path="/", name=None):
     return DriveFile(
-        id=id, name=id, size=0, md5=None, modified_time="", mime_type=FOLDER_MIME, parent=parent
+        id=id,
+        name=name or id,
+        size=0,
+        md5=None,
+        modified_time="",
+        mime_type=FOLDER_MIME,
+        parent=parent,
+        path=path,
     )
 
 
@@ -22,14 +35,27 @@ FILES = [
     f("keep", modified="2024-06-01T00:00:00Z", parent="full"),
     f("dupe", modified="2020-01-01T00:00:00Z"),
     f("lonely", md5="z", modified="2019-03-01T00:00:00Z"),
+    f("p1", md5="p", modified="2023-01-01T00:00:00Z", parent="photos", path="/Photos", size=25),
+    f("p2", md5="p", modified="2024-01-01T00:00:00Z", parent="y2023", path="/Photos/2023", size=25),
+    f("p3", md5="p", modified="2022-01-01T00:00:00Z", parent="archive", path="/Archive", size=25),
 ]
 
 RESULT = ScanResult(
-    total_files=4,
+    total_files=7,
     skipped_no_md5=0,
-    groups=[DuplicateGroup(md5="m", files=[FILES[0], FILES[1]])],
+    groups=[
+        DuplicateGroup(md5="m", files=[FILES[0], FILES[1]]),
+        DuplicateGroup(md5="p", files=[FILES[3], FILES[4], FILES[5]]),
+    ],
     files=FILES,
-    folders=[folder("full"), folder("emptyA"), folder("emptyB", parent="emptyA")],
+    folders=[
+        folder("full"),
+        folder("emptyA"),
+        folder("emptyB", parent="emptyA"),
+        folder("photos", name="Photos"),
+        folder("y2023", parent="photos", path="/Photos", name="2023"),
+        folder("archive", name="Archive"),
+    ],
 )
 
 
@@ -74,7 +100,7 @@ def test_scan_result_marks_suggested_trash(client):
     group = body["groups"][0]
     flags = {x["id"]: x["suggested_trash"] for x in group["files"]}
     assert flags == {"keep": False, "dupe": True}
-    assert body["reclaimable_bytes"] == 10
+    assert body["reclaimable_bytes"] == 60
 
 
 def test_clean_requires_write_access(client, monkeypatch):
@@ -163,3 +189,167 @@ def test_serves_index(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+
+
+# ---- folders, scope, keep rules ----
+
+
+def test_folders_lists_full_paths_sorted(client):
+    body = client.get("/api/folders").json()
+    assert [x["path"] for x in body["folders"]] == [
+        "/Archive",
+        "/emptyA",
+        "/emptyB",
+        "/full",
+        "/Photos",
+        "/Photos/2023",
+    ]
+    assert body["folders"][-1] == {"id": "y2023", "path": "/Photos/2023"}
+
+
+def test_result_scoped_to_folder(client):
+    body = client.get("/api/scan/result?folder=photos").json()
+    assert body["total_files"] == 2
+    assert [g["md5"] for g in body["groups"]] == ["p"]
+    assert {x["id"] for x in body["groups"][0]["files"]} == {"p1", "p2"}
+    assert body["scope"] == {"id": "photos", "path": "/Photos"}
+
+
+def test_result_unscoped_reports_root_scope(client):
+    assert client.get("/api/scan/result").json()["scope"] is None
+
+
+def test_result_rejects_unknown_folder(client):
+    resp = client.get("/api/scan/result?folder=nope")
+    assert resp.status_code == 400
+
+
+def test_result_shallowest_strategy(client):
+    body = client.get("/api/scan/result?strategy=shallowest").json()
+    group = next(g for g in body["groups"] if g["md5"] == "p")
+    flags = {x["id"]: x["suggested_trash"] for x in group["files"]}
+    # p1 (/Photos) and p3 (/Archive) are equally shallow; p1 is newer
+    assert flags == {"p1": False, "p2": True, "p3": True}
+
+
+def test_result_prefer_folder(client):
+    body = client.get("/api/scan/result?strategy=newest&prefer=archive").json()
+    group = next(g for g in body["groups"] if g["md5"] == "p")
+    flags = {x["id"]: x["suggested_trash"] for x in group["files"]}
+    assert flags == {"p1": True, "p2": True, "p3": False}
+
+
+def test_result_protected_folder_marks_files_and_never_suggests(client):
+    body = client.get("/api/scan/result?protected=archive&protected=y2023").json()
+    group = next(g for g in body["groups"] if g["md5"] == "p")
+    by_id = {x["id"]: x for x in group["files"]}
+    assert by_id["p3"]["protected"] is True and by_id["p3"]["suggested_trash"] is False
+    assert by_id["p2"]["protected"] is True and by_id["p2"]["suggested_trash"] is False
+    assert by_id["p1"]["protected"] is False and by_id["p1"]["suggested_trash"] is True
+
+
+def test_clean_refuses_protected_file(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    resp = client.post("/api/clean", json={"file_ids": ["p3"], "protected": ["archive"]})
+    assert resp.status_code == 400
+    assert "protected" in resp.json()["detail"]
+
+
+def test_trash_refuses_protected_file(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    resp = client.post("/api/trash", json={"file_ids": ["p2"], "protected": ["photos"]})
+    assert resp.status_code == 400
+
+
+# ---- largest files ----
+
+
+def test_largest_files_sorted_and_limited(client):
+    body = client.get("/api/largest-files?limit=2").json()
+    assert [x["id"] for x in body["files"]] == ["p1", "p2"]
+    assert body["count"] == 2
+    assert body["total_bytes"] == 50
+
+
+def test_largest_files_honors_scope(client):
+    body = client.get("/api/largest-files?limit=10&folder=archive").json()
+    assert [x["id"] for x in body["files"]] == ["p3"]
+
+
+def test_largest_files_rejects_bad_limit(client):
+    assert client.get("/api/largest-files?limit=0").status_code == 422
+
+
+def test_trash_accepts_largest_file(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(
+        webapp.actions, "trash_files", lambda client_, items, progress_cb=None: "batch9"
+    )
+    assert client.post("/api/trash", json={"file_ids": ["p1"]}).json()["trashed"] == 1
+
+
+# ---- batches & purge ----
+
+
+def test_batches_lists_audit_log(client, monkeypatch):
+    monkeypatch.setattr(
+        webapp.actions,
+        "list_batches",
+        lambda: [
+            {"batch_id": "b1", "timestamp": "t", "count": 2, "files": [], "status": "trashed"}
+        ],
+    )
+    body = client.get("/api/batches").json()
+    assert body["batches"][0]["batch_id"] == "b1"
+
+
+def test_purge_requires_write_access(client, monkeypatch):
+    monkeypatch.setattr(webapp.auth, "load_credentials", lambda write_access=False: None)
+    resp = client.post("/api/purge", json={"batch_id": "b1", "confirm": "b1"})
+    assert resp.status_code == 403
+
+
+def test_purge_requires_typed_confirmation(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    called = []
+    monkeypatch.setattr(
+        webapp.actions, "purge_batch", lambda c, b, progress_cb=None: called.append(b)
+    )
+    resp = client.post("/api/purge", json={"batch_id": "b1", "confirm": "wrong"})
+    assert resp.status_code == 400
+    assert called == []
+
+
+def test_purge_unknown_batch_is_404(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+
+    def boom(c, b, progress_cb=None):
+        raise LookupError("unknown batch")
+
+    monkeypatch.setattr(webapp.actions, "purge_batch", boom)
+    assert client.post("/api/purge", json={"batch_id": "zz", "confirm": "zz"}).status_code == 404
+
+
+def test_purge_undone_batch_is_409(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+
+    def boom(c, b, progress_cb=None):
+        raise ValueError("batch was undone")
+
+    monkeypatch.setattr(webapp.actions, "purge_batch", boom)
+    assert client.post("/api/purge", json={"batch_id": "b1", "confirm": "b1"}).status_code == 409
+
+
+def test_purge_happy_path(client, monkeypatch):
+    connected(monkeypatch, write_access=True)
+    monkeypatch.setattr(
+        webapp.actions,
+        "purge_batch",
+        lambda c, b, progress_cb=None: {
+            "batch_id": b,
+            "deleted": [{"id": "a", "name": "a"}],
+            "skipped": [{"id": "b", "name": "b"}],
+        },
+    )
+    body = client.post("/api/purge", json={"batch_id": "b1", "confirm": "b1"}).json()
+    assert body == {"batch_id": "b1", "deleted": 1, "skipped": 1}
