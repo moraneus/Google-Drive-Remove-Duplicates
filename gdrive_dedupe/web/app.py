@@ -198,6 +198,10 @@ def create_app(allowed_hosts: list[str] | None = None, token: str | None = None)
     def index():
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return FileResponse(STATIC_DIR / "favicon.png", media_type="image/png")
+
     @app.get("/api/auth/status")
     def auth_status():
         return auth.auth_status()

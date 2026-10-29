@@ -485,3 +485,12 @@ def test_files_expose_checksum_and_parent_folder(client):
     assert first["parent"] == "photos"
     tool = client.get("/api/largest-files?limit=1").json()["files"][0]
     assert tool["md5"] == "p" and tool["parent"] == "photos"
+
+
+def test_favicon_is_served_without_token(token_client):
+    svg = token_client.get("/static/favicon.svg")
+    assert svg.status_code == 200 and "image/svg+xml" in svg.headers["content-type"]
+    ico = token_client.get("/favicon.ico")
+    assert ico.status_code == 200 and ico.headers["content-type"].startswith("image/")
+    page = token_client.get("/").text
+    assert 'rel="icon"' in page and "favicon.svg" in page

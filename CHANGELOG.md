@@ -40,6 +40,8 @@ All notable changes to this project are documented here. The format is based on
   visible. Folder paths are links that open that folder in Google Drive. Names and
   paths in right-to-left scripts render in the right order.
 
+- Browser-tab icon (SVG favicon with PNG fallbacks).
+
 ### Fixed
 - In access-token mode (Docker, `--host`), the live scan progress stream was refused
   because a browser `EventSource` cannot send headers; the stream now accepts the token
