@@ -122,6 +122,36 @@ def test_non_retryable_error_raises():
         DriveClient(FakeService(fake_files), sleep=lambda s: None).list_owned_files()
 
 
+def test_network_timeout_retries_then_succeeds():
+    fake_files = FakeFiles([{}])
+    fake_files.update = lambda fileId, body: FakeRequest(
+        [TimeoutError("The read operation timed out"), {}]
+    )
+    sleeps = []
+    client = DriveClient(FakeService(fake_files), sleep=sleeps.append)
+    client.set_trashed("f9", True)  # should not raise
+    assert len(sleeps) == 1
+
+
+def test_network_timeout_exhausts_retries_then_raises():
+    fake_files = FakeFiles([{}])
+    fake_files.update = lambda fileId, body: FakeRequest([TimeoutError()] * 5)
+    client = DriveClient(FakeService(fake_files), max_retries=5, sleep=lambda s: None)
+    with pytest.raises(TimeoutError):
+        client.set_trashed("f9", True)
+
+
+def test_connection_error_retries_then_succeeds():
+    fake_files = FakeFiles([{}])
+    fake_files.list = lambda **kw: FakeRequest(
+        [ConnectionResetError("connection reset"), {"files": []}]
+    )
+    sleeps = []
+    client = DriveClient(FakeService(fake_files), sleep=sleeps.append)
+    assert client.list_owned_files() == []
+    assert len(sleeps) == 1
+
+
 def test_set_trashed_calls_update():
     fake_files = FakeFiles([{}])
     DriveClient(FakeService(fake_files)).set_trashed("f9", True)
